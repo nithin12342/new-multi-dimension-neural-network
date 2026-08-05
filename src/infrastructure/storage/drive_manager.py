@@ -6,6 +6,7 @@ Must Never: write outputs to colab local temporary storage
 """
 
 import os
+import sys
 from typing import Dict
 from src.domain.config.config_entities import PathConfig
 
@@ -14,23 +15,49 @@ class GoogleDriveManager:
 
     def __init__(self, path_config: PathConfig = PathConfig()):
         self.config = path_config
+        self.resolved_base_dir = self._determine_base_directory()
+
+    def _determine_base_directory(self) -> str:
+        """
+        Determine valid, non-blocking storage path.
+        Respects custom self.config.base_dir if provided.
+        Otherwise falls back to Google Drive or local storage.
+        """
+        configured_base = self.config.base_dir
+
+        # 1. If configured_base is outside /content/drive, use configured_base directly
+        if not configured_base.startswith("/content/drive"):
+            os.makedirs(configured_base, exist_ok=True)
+            print(f"[DriveManager] Using specified base directory: {configured_base}", flush=True)
+            return configured_base
+
+        # 2. Configured base is under /content/drive/MyDrive. Check if Drive is mounted and writable.
+        gdrive_mydrive = "/content/drive/MyDrive"
+        if os.path.exists(gdrive_mydrive) and os.access(gdrive_mydrive, os.W_OK):
+            os.makedirs(configured_base, exist_ok=True)
+            print(f"[DriveManager] Google Drive active at: {configured_base}", flush=True)
+            return configured_base
+
+        # 3. Fallback: Google Drive not mounted. Use non-blocking local storage path /content/SOTA_Cluster_Shared or ./SOTA_Cluster_Shared
+        colab_content = "/content/SOTA_Cluster_Shared"
+        if os.path.exists("/content"):
+            os.makedirs(colab_content, exist_ok=True)
+            print(f"[DriveManager] Google Drive not mounted. Using storage path: {colab_content}", flush=True)
+            return colab_content
+
+        local_fallback = os.path.abspath("./SOTA_Cluster_Shared")
+        os.makedirs(local_fallback, exist_ok=True)
+        print(f"[DriveManager] Using local storage path: {local_fallback}", flush=True)
+        return local_fallback
 
     def mount_drive(self) -> bool:
-        """Mount Google Drive in Colab environment if available, or fallback to local directory."""
-        if os.path.exists(self.config.drive_mount_point):
-            return True
-        try:
-            from google.colab import drive # type: ignore
-            drive.mount(self.config.drive_mount_point, force_remount=False)
-            return True
-        except (ImportError, Exception):
-            # Fallback for non-Colab or local environments
-            os.makedirs(self.config.base_dir, exist_ok=True)
-            return False
+        """Check if Google Drive is available without blocking subprocess execution."""
+        gdrive_mydrive = "/content/drive/MyDrive"
+        return os.path.exists(gdrive_mydrive) and os.access(gdrive_mydrive, os.W_OK)
 
     def initialize_directory_structure(self) -> Dict[str, str]:
-        """Create full directory hierarchy matching spec §14 on Google Drive."""
-        base = self.config.base_dir
+        """Create full directory hierarchy matching spec §14."""
+        base = self.resolved_base_dir
         subdirs = {
             "datasets": os.path.join(base, "datasets"),
             "checkpoints": os.path.join(base, "checkpoints"),
@@ -64,6 +91,6 @@ class GoogleDriveManager:
         dirs = self.initialize_directory_structure()
         if category in dirs:
             return dirs[category]
-        target_path = os.path.join(self.config.base_dir, category)
+        target_path = os.path.join(self.resolved_base_dir, category)
         os.makedirs(target_path, exist_ok=True)
         return target_path

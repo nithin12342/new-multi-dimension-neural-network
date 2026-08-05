@@ -1,7 +1,7 @@
 """
 FILE-015 | FOLDER-010 | src/infrastructure/logging/session_logger.py
 Owning Aggregate: SessionLogger
-Responsibility: profile hardware stats and log session telemetry
+Responsibility: profile hardware stats and log session telemetry in duckdb database
 Must Never: block training execution during logging disk writes
 """
 
@@ -14,12 +14,39 @@ import psutil
 from typing import Dict, Any
 
 class SessionTelemetryLogger:
-    """Detailed Session & Hardware Utilization Logger for Google Colab environment."""
+    """Detailed Session & Hardware Utilization Logger storing telemetry in DuckDB database format."""
 
     def __init__(self, logs_dir: str):
         self.logs_dir = logs_dir
         self.session_logs_dir = os.path.join(logs_dir, "session_logs")
         os.makedirs(self.session_logs_dir, exist_ok=True)
+        self.db_path = os.path.join(self.session_logs_dir, "session_telemetry.duckdb")
+        self._init_db_schema()
+
+    def _init_db_schema(self) -> None:
+        """Initialize DuckDB table schema for session telemetry."""
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path)
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS session_telemetry (
+                    session_id VARCHAR,
+                    start_time VARCHAR,
+                    end_time VARCHAR,
+                    gpu_name VARCHAR,
+                    cuda_version VARCHAR,
+                    pytorch_version VARCHAR,
+                    python_version VARCHAR,
+                    cpu_count INTEGER,
+                    ram_total_gb DOUBLE,
+                    gpu_count INTEGER,
+                    cpu_percent DOUBLE,
+                    ram_used_gb DOUBLE
+                )
+            """)
+            con.close()
+        except Exception:
+            pass
 
     def log_session_start(self) -> Dict[str, Any]:
         """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state."""
@@ -33,15 +60,37 @@ class SessionTelemetryLogger:
             "gpu_name": gpu_name,
             "cuda_version": cuda_ver,
             "pytorch_version": torch.__version__,
-            "python_version": sys.version,
-            "cpu_count": psutil.cpu_count(),
+            "python_version": sys.version.split()[0],
+            "cpu_count": psutil.cpu_count() or 1,
             "ram_total_gb": round(psutil.virtual_memory().total / (1024 ** 3), 2),
             "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
         }
 
-        log_file = os.path.join(self.session_logs_dir, f"{session_stats['session_id']}_start.json")
-        with open(log_file, "w") as f:
-            json.dump(session_stats, f, indent=2)
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path)
+            con.execute("""
+                INSERT INTO session_telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_stats["session_id"],
+                session_stats["start_time"],
+                "",
+                session_stats["gpu_name"],
+                session_stats["cuda_version"],
+                session_stats["pytorch_version"],
+                session_stats["python_version"],
+                session_stats["cpu_count"],
+                session_stats["ram_total_gb"],
+                session_stats["gpu_count"],
+                psutil.cpu_percent(),
+                round(psutil.virtual_memory().used / (1024 ** 3), 2)
+            ))
+            con.close()
+        except Exception:
+            # Fallback JSON logging
+            log_file = os.path.join(self.session_logs_dir, f"{session_stats['session_id']}_start.json")
+            with open(log_file, "w") as f:
+                json.dump(session_stats, f, indent=2)
 
         return session_stats
 
@@ -58,13 +107,21 @@ class SessionTelemetryLogger:
         return stats
 
     def log_session_end(self, session_start_stats: Dict[str, Any]) -> None:
-        """Record final session summary, total runtime duration, and append to Drive log."""
+        """Record final session summary and update DuckDB session record."""
         end_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-        session_summary = {
-            **session_start_stats,
-            "end_time": end_time,
-            "final_hardware": self.profile_hardware()
-        }
-        log_file = os.path.join(self.session_logs_dir, f"{session_start_stats['session_id']}_summary.json")
-        with open(log_file, "w") as f:
-            json.dump(session_summary, f, indent=2)
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path)
+            con.execute("""
+                UPDATE session_telemetry SET end_time = ? WHERE session_id = ?
+            """, (end_time, session_start_stats["session_id"]))
+            con.close()
+        except Exception:
+            session_summary = {
+                **session_start_stats,
+                "end_time": end_time,
+                "final_hardware": self.profile_hardware()
+            }
+            log_file = os.path.join(self.session_logs_dir, f"{session_start_stats['session_id']}_summary.json")
+            with open(log_file, "w") as f:
+                json.dump(session_summary, f, indent=2)

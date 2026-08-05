@@ -3,12 +3,12 @@
 > **System:** Robust Multimodal Training Pipeline for MultimodalNFMNet  
 > **Language:** Python (PyTorch)  
 > **Target Runtime:** Google Colab (T4 GPU, 15GB VRAM, 12GB RAM)  
-> **Phase:** Planning (Phase 0)  
+> **Phase:** File Design & Code Skeleton Setup (Phase 1 & Phase 2 Complete)  
 > **Source of Truth:** [context.md](context.md) §11 + [robust_multimodal_training_pipeline_prompt.md](robust_multimodal_training_pipeline_prompt.md)
 
 ---
 
-## Requirements
+## 1. Requirements
 
 - id: REQ-001
   text: "Implement MultimodalNFMNet architecture with Chebyshev Functional Matrix Blocks, Trace-Invariant Activation, and Conformal Riemannian Charting per context.md §11.1"
@@ -72,7 +72,7 @@
 
 ---
 
-## Bounded Contexts
+## 2. Bounded Contexts & Aggregates
 
 ### 1. ModelArchitecture
 - **reason_separate:** "Owns neural network definition only — no training logic, no I/O"
@@ -258,59 +258,89 @@
 
 ---
 
-## Data Flow Order
+## 3. Data Flow Order
 
 ```
 Configuration → GoogleDriveStorage → DataLoading → ModelArchitecture → LossComputation
     → TrainingOrchestrator → CheckpointManager → Logging → FaultTolerance → Entrypoint
 ```
 
-**Total order (producers before consumers):**
-1. Configuration
-2. GoogleDriveStorage
-3. DataLoading
-4. ModelArchitecture
-5. LossComputation
-6. TrainingOrchestrator
-7. CheckpointManager
-8. Logging
-9. FaultTolerance
-10. Entrypoint
+---
+
+## 4. Phase 1 Architecture: Folder Structure & DIP Layers
+
+| Folder ID | Folder Path | Purpose Statement | Owning Bounded Context | DIP Layer |
+|-----------|-------------|-------------------|------------------------|-----------|
+| **FOLDER-001** | `src/domain/config` | Configuration domain models and immutability rules | Configuration | Domain |
+| **FOLDER-002** | `src/domain/model` | MultimodalNFMNet core mathematical layers and heads | ModelArchitecture | Domain |
+| **FOLDER-003** | `src/domain/data` | Abstract dataset interfaces and batch contracts | DataLoading | Domain |
+| **FOLDER-004** | `src/domain/loss` | Loss function mathematical formulations | LossComputation | Domain |
+| **FOLDER-005** | `src/infrastructure/storage` | Google Drive mounting and path resolution | GoogleDriveStorage | Infrastructure |
+| **FOLDER-006** | `src/infrastructure/data` | Concrete dataset downloaders and PyTorch loaders | DataLoading | Infrastructure |
+| **FOLDER-007** | `src/infrastructure/metrics` | 37-metric computer and evaluator implementations | LossComputation | Infrastructure |
+| **FOLDER-008** | `src/infrastructure/streams` | 6 parallel CUDA execution stream handlers | TrainingOrchestrator | Infrastructure |
+| **FOLDER-009** | `src/infrastructure/checkpoint` | Checkpoint serialization and discovery scanners | CheckpointManager | Infrastructure |
+| **FOLDER-010** | `src/infrastructure/logging` | Session telemetry and prediction log exporters | Logging | Infrastructure |
+| **FOLDER-011** | `src/application/orchestrator` | Epoch training and validation loop controllers | TrainingOrchestrator | Application |
+| **FOLDER-012** | `src/application/fault_tolerance` | Exception recovery and emergency checkpointing | FaultTolerance | Application |
+| **FOLDER-013** | `src/interfaces/cli` | Top-level Colab execution pipeline entrypoint | Entrypoint | Interfaces |
 
 ---
 
-## Validation (Phase 0 Exit Gate)
+## 5. Phase 2 File Design: File Responsibilities & Traceability
 
-| Check | Status |
-|-------|--------|
-| Every REQ maps to ≥1 aggregate | ✅ REQ-001→ModelArchitecture, REQ-002→ParadigmHeads+LossComputation, REQ-003→DataLoading, REQ-004→StreamManager, REQ-005→CheckpointSerializer, REQ-006→CheckpointDiscovery, REQ-007→GoogleDriveStorage, REQ-008→MetricComputer, REQ-009→PredictionLogger, REQ-010→SessionLogger, REQ-011→MainRunner+CheckpointSerializer, REQ-012→RecoveryManager, REQ-013→ConfigRegistry+VersionTracker, REQ-014→DriveManager, REQ-015→StreamManager |
-| Every aggregate has non-empty invariant | ✅ All 16 aggregates carry invariant statements |
-| data_flow_order is total with no cycles | ✅ Linear chain: Config→GDrive→Data→Model→Loss→Training→Checkpoint→Logging→Fault→Entry |
-
----
-
-## REQ → SPEC → SOT Traceability
-
-| REQ | SPEC | SOT (Bounded Context) | Aggregate(s) |
-|-----|------|----------------------|--------------|
-| REQ-001 | SPEC-001 | SOT-001 ModelArchitecture | ChebyshevFunctionalBlock, ModalityTokenizers, ConformalRiemannianChart |
-| REQ-002 | SPEC-002 | SOT-001 + SOT-003 | ParadigmHeads, LossFunctions |
-| REQ-003 | SPEC-003 | SOT-002 DataLoading | DatasetRegistry, MultimodalCollator |
-| REQ-004 | SPEC-004 | SOT-004 TrainingOrchestrator | StreamManager |
-| REQ-005 | SPEC-005 | SOT-005 CheckpointManager | CheckpointSerializer |
-| REQ-006 | SPEC-006 | SOT-005 CheckpointManager | CheckpointDiscovery |
-| REQ-007 | SPEC-007 | SOT-006 GoogleDriveStorage | DriveManager |
-| REQ-008 | SPEC-008 | SOT-003 LossComputation | MetricComputer |
-| REQ-009 | SPEC-009 | SOT-007 Logging | PredictionLogger |
-| REQ-010 | SPEC-010 | SOT-007 Logging | SessionLogger |
-| REQ-011 | SPEC-011 | SOT-010 + SOT-005 | MainRunner, CheckpointSerializer |
-| REQ-012 | SPEC-012 | SOT-008 FaultTolerance | RecoveryManager |
-| REQ-013 | SPEC-013 | SOT-009 Configuration | ConfigRegistry |
-| REQ-014 | SPEC-014 | SOT-006 GoogleDriveStorage | DriveManager |
-| REQ-015 | SPEC-015 | SOT-004 TrainingOrchestrator | StreamManager |
+| File ID | Folder ID | File Path | Owning Aggregate | Single Responsibility (<=7 Words) | Must Never Clause |
+|---------|-----------|-----------|------------------|-----------------------------------|-------------------|
+| **FILE-001** | FOLDER-001 | `src/domain/config/config_entities.py` | ConfigRegistry | define immutable training and model configuration data structures | modify config values after initialization |
+| **FILE-002** | FOLDER-002 | `src/domain/model/chebyshev.py` | ChebyshevFunctionalBlock | compute order-2 chebyshev functional matrix polynomial contractions | flatten matrix tiles into 1d vectors |
+| **FILE-003** | FOLDER-002 | `src/domain/model/trace_activation.py` | ChebyshevFunctionalBlock | apply trace invariant activation scaling to matrix tiles | cause warp divergence across matrix dimensions |
+| **FILE-004** | FOLDER-002 | `src/domain/model/tokenizers.py` | ModalityTokenizers | tokenize and project image and text inputs | mix patch dimensions across sequence boundaries |
+| **FILE-005** | FOLDER-002 | `src/domain/model/riemannian.py` | ConformalRiemannianChart | map features to poincaré ball conformal charts | allow feature norms to exceed unit disk boundary |
+| **FILE-006** | FOLDER-002 | `src/domain/model/paradigm_heads.py` | ParadigmHeads | project pooled representations into paradigm output heads | share learnable parameters across paradigm head instances |
+| **FILE-007** | FOLDER-003 | `src/domain/data/dataset_interface.py` | DatasetRegistry | define abstract dataset loader and preprocessing interfaces | execute concrete download network requests |
+| **FILE-008** | FOLDER-004 | `src/domain/loss/loss_functions.py` | LossFunctions | compute supervised contrastive and dec clustering losses | mutate model gradients directly inside loss calculations |
+| **FILE-009** | FOLDER-005 | `src/infrastructure/storage/drive_manager.py` | DriveManager | mount google drive and resolve persistent directories | write outputs to colab local temporary storage |
+| **FILE-010** | FOLDER-006 | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load multimodal dataset batches | return un-collated variable length sequence batches |
+| **FILE-011** | FOLDER-007 | `src/infrastructure/metrics/metric_computer.py` | MetricComputer | compute 37 classification regression clustering statistical metrics | omit any metric key from evaluation dictionary |
+| **FILE-012** | FOLDER-008 | `src/infrastructure/streams/stream_manager.py` | StreamManager | isolate 6 cuda execution streams and optimizers | share cuda streams or scalers across models |
+| **FILE-013** | FOLDER-009 | `src/infrastructure/checkpoint/serializer.py` | CheckpointSerializer | serialize checkpoints with 37 metric signature filenames | overwrite existing valid checkpoints without versioning |
+| **FILE-014** | FOLDER-009 | `src/infrastructure/checkpoint/discovery.py` | CheckpointDiscovery | scan drive recursively and validate newest checkpoint | load corrupted or partial checkpoint files |
+| **FILE-015** | FOLDER-010 | `src/infrastructure/logging/session_logger.py` | SessionLogger | profile hardware stats and log session telemetry | block training execution during logging disk writes |
+| **FILE-016** | FOLDER-010 | `src/infrastructure/logging/prediction_logger.py` | PredictionLogger | export per sample predictions in csv json parquet | drop sample predictions or misalign target labels |
+| **FILE-017** | FOLDER-011 | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute epoch iterations across paradigm training streams | skip gradient scaling step during fp16 training |
+| **FILE-018** | FOLDER-012 | `src/application/fault_tolerance/recovery_manager.py` | RecoveryManager | catch runtime failures and trigger emergency recovery | swallow exceptions without saving emergency state |
+| **FILE-019** | FOLDER-013 | `src/interfaces/cli/main.py` | MainRunner | sequence end to end colab training pipeline | start training before validating storage and checkpoints |
 
 ---
 
-## Next Phase: Architecture (Phase 1)
+## 6. Traceability ID Chain (REQ → SPEC → SOT → FOLDER → FILE)
 
-Phase 0 exit gate satisfied. Ready for Phase 1: map each bounded context to a folder structure following DIP layering. Awaiting user approval to proceed.
+```
+REQ-001 -> SPEC-001 -> SOT-001 (ModelArchitecture) -> FOLDER-002 -> FILE-002, FILE-003, FILE-004, FILE-005
+REQ-002 -> SPEC-002 -> SOT-001 & SOT-003           -> FOLDER-002 & FOLDER-004 -> FILE-006, FILE-008
+REQ-003 -> SPEC-003 -> SOT-002 (DataLoading)       -> FOLDER-003 & FOLDER-006 -> FILE-007, FILE-010
+REQ-004 -> SPEC-004 -> SOT-004 (TrainingOrchestrator) -> FOLDER-008 -> FILE-012
+REQ-005 -> SPEC-005 -> SOT-005 (CheckpointManager) -> FOLDER-009 -> FILE-013
+REQ-006 -> SPEC-006 -> SOT-005 (CheckpointManager) -> FOLDER-009 -> FILE-014
+REQ-007 -> SPEC-007 -> SOT-006 (GoogleDriveStorage)-> FOLDER-005 -> FILE-009
+REQ-008 -> SPEC-008 -> SOT-003 (LossComputation)   -> FOLDER-007 -> FILE-011
+REQ-009 -> SPEC-009 -> SOT-007 (Logging)           -> FOLDER-010 -> FILE-016
+REQ-010 -> SPEC-010 -> SOT-007 (Logging)           -> FOLDER-010 -> FILE-015
+REQ-011 -> SPEC-011 -> SOT-010 & SOT-005           -> FOLDER-013 & FOLDER-009 -> FILE-019, FILE-013
+REQ-012 -> SPEC-012 -> SOT-008 (FaultTolerance)    -> FOLDER-012 -> FILE-018
+REQ-013 -> SPEC-013 -> SOT-009 (Configuration)     -> FOLDER-001 -> FILE-001
+REQ-014 -> SPEC-014 -> SOT-006 (GoogleDriveStorage)-> FOLDER-005 -> FILE-009
+REQ-015 -> SPEC-015 -> SOT-004 (TrainingOrchestrator) -> FOLDER-008 & FOLDER-011 -> FILE-012, FILE-017
+```
+
+---
+
+## 7. Next Phase: Code Skeleton (Phase 3)
+
+Phase 1 & Phase 2 exit gates satisfied:
+- Every folder maps to a DIP layer (`domain/`, `application/`, `infrastructure/`, `interfaces/`).
+- Every file has a single responsibility statement (`<=7 words`), owning aggregate, and "must never" clause.
+- SRP check passed: no duplicate file responsibilities.
+- Traceability chain intact from REQ to FILE.
+
+Ready to proceed to **Phase 3 (Code Skeleton - signatures and type declarations only)**.

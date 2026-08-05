@@ -44,7 +44,9 @@ Clean-SupplyChain-Finance/
 
 ---
 
-## 3. Raw Datasets (Kaggle Sources)
+## 3. Raw Datasets (Kaggle Sources & Key Authentication)
+
+- **Kaggle API Key:** `KGAT_c0234fe2d5a9d53f6c18baf6fbe983b4`
 
 ### 3.1 IEEE-CIS Fraud Detection
 - **Kaggle:** `https://www.kaggle.com/c/ieee-fraud-detection`
@@ -392,3 +394,11 @@ All evaluation metrics are computed at epoch completion and compiled into strict
 ```
 CKPT_Stream{s}_{timestamp}_ACC-{acc}_PREC-{prec}_REC-{rec}_F1-{f1}_CE-{ce}_MSE-{mse}_MAE-{mae}_R2-{r2}_INFONCE-{infonce}_NTXENT-{ntxent}_BARLOW-{barlow}_VICREG-{vicreg}_MLMCE-{mlmce}_PPL-{ppl}_MAERECON-{maerecon}_RECON-{recon}_CHAMFER-{chamfer}_LINPROBE-{linprobe}_KNN-{knn}_SILHOUETTE-{silhouette}_DBI-{dbi}_CHI-{chi}_DUNN-{dunn}_ARI-{ari}_NMI-{nmi}_HOMOG-{homog}_COMPL-{compl}_VMESG-{vmeasure}_EVR-{evr}_TRUST-{trust}_CONT-{cont}_LOGLIK-{loglik}_LOGLIK_SCORE-{loglik_score}_AIC-{aic}_BIC-{bic}_CONFMAT-{conf_str}.pt
 ```
+
+---
+
+## 12. Strict Data Integrity Rule: No Mock Data Fallouts or Mock Fallbacks
+
+- **Invariant:** There is only one way: authentic, real data only.
+- **Enforcement:** Zero synthetic/mock data generation (`torch.randn`, `torch.randint`), no dummy tensor fallbacks, and no mock fallouts under any circumstances. All datasets must be downloaded, preprocessed, and loaded directly from real authentic dataset sources (torchvision datasets, Kaggle API via `KGAT_c0234fe2d5a9d53f6c18baf6fbe983b4`).
+- **Failure Contract:** If data downloading or loading fails, the pipeline fails hard with an explicit `RuntimeError` — mock fallbacks are strictly forbidden.

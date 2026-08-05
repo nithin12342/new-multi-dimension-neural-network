@@ -3,7 +3,7 @@
 > **System:** Robust Multimodal Training Pipeline for MultimodalNFMNet  
 > **Language:** Python (PyTorch)  
 > **Target Runtime:** Google Colab (T4 GPU, 15GB VRAM, 12GB RAM)  
-> **Phase:** File Design & Code Skeleton Setup (Phase 1 & Phase 2 Complete)  
+> **Phase:** Implementation Ready (Phase 3 Code Skeleton Complete & Verified)  
 > **Source of Truth:** [context.md](context.md) §11 + [robust_multimodal_training_pipeline_prompt.md](robust_multimodal_training_pipeline_prompt.md)
 
 ---
@@ -289,27 +289,27 @@ Configuration → GoogleDriveStorage → DataLoading → ModelArchitecture → L
 
 ## 5. Phase 2 File Design: File Responsibilities & Traceability
 
-| File ID | Folder ID | File Path | Owning Aggregate | Single Responsibility (<=7 Words) | Must Never Clause |
-|---------|-----------|-----------|------------------|-----------------------------------|-------------------|
-| **FILE-001** | FOLDER-001 | `src/domain/config/config_entities.py` | ConfigRegistry | define immutable training and model configuration data structures | modify config values after initialization |
-| **FILE-002** | FOLDER-002 | `src/domain/model/chebyshev.py` | ChebyshevFunctionalBlock | compute order-2 chebyshev functional matrix polynomial contractions | flatten matrix tiles into 1d vectors |
-| **FILE-003** | FOLDER-002 | `src/domain/model/trace_activation.py` | ChebyshevFunctionalBlock | apply trace invariant activation scaling to matrix tiles | cause warp divergence across matrix dimensions |
-| **FILE-004** | FOLDER-002 | `src/domain/model/tokenizers.py` | ModalityTokenizers | tokenize and project image and text inputs | mix patch dimensions across sequence boundaries |
-| **FILE-005** | FOLDER-002 | `src/domain/model/riemannian.py` | ConformalRiemannianChart | map features to poincaré ball conformal charts | allow feature norms to exceed unit disk boundary |
-| **FILE-006** | FOLDER-002 | `src/domain/model/paradigm_heads.py` | ParadigmHeads | project pooled representations into paradigm output heads | share learnable parameters across paradigm head instances |
-| **FILE-007** | FOLDER-003 | `src/domain/data/dataset_interface.py` | DatasetRegistry | define abstract dataset loader and preprocessing interfaces | execute concrete download network requests |
-| **FILE-008** | FOLDER-004 | `src/domain/loss/loss_functions.py` | LossFunctions | compute supervised contrastive and dec clustering losses | mutate model gradients directly inside loss calculations |
-| **FILE-009** | FOLDER-005 | `src/infrastructure/storage/drive_manager.py` | DriveManager | mount google drive and resolve persistent directories | write outputs to colab local temporary storage |
-| **FILE-010** | FOLDER-006 | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load multimodal dataset batches | return un-collated variable length sequence batches |
-| **FILE-011** | FOLDER-007 | `src/infrastructure/metrics/metric_computer.py` | MetricComputer | compute 37 classification regression clustering statistical metrics | omit any metric key from evaluation dictionary |
-| **FILE-012** | FOLDER-008 | `src/infrastructure/streams/stream_manager.py` | StreamManager | isolate 6 cuda execution streams and optimizers | share cuda streams or scalers across models |
-| **FILE-013** | FOLDER-009 | `src/infrastructure/checkpoint/serializer.py` | CheckpointSerializer | serialize checkpoints with 37 metric signature filenames | overwrite existing valid checkpoints without versioning |
-| **FILE-014** | FOLDER-009 | `src/infrastructure/checkpoint/discovery.py` | CheckpointDiscovery | scan drive recursively and validate newest checkpoint | load corrupted or partial checkpoint files |
-| **FILE-015** | FOLDER-010 | `src/infrastructure/logging/session_logger.py` | SessionLogger | profile hardware stats and log session telemetry | block training execution during logging disk writes |
-| **FILE-016** | FOLDER-010 | `src/infrastructure/logging/prediction_logger.py` | PredictionLogger | export per sample predictions in csv json parquet | drop sample predictions or misalign target labels |
-| **FILE-017** | FOLDER-011 | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute epoch iterations across paradigm training streams | skip gradient scaling step during fp16 training |
-| **FILE-018** | FOLDER-012 | `src/application/fault_tolerance/recovery_manager.py` | RecoveryManager | catch runtime failures and trigger emergency recovery | swallow exceptions without saving emergency state |
-| **FILE-019** | FOLDER-013 | `src/interfaces/cli/main.py` | MainRunner | sequence end to end colab training pipeline | start training before validating storage and checkpoints |
+| File ID | Folder ID | File Path | Owning Aggregate | Single Responsibility (<=7 Words) | Must Never Clause | Code Skeleton Status |
+|---------|-----------|-----------|------------------|-----------------------------------|-------------------|----------------------|
+| **FILE-001** | FOLDER-001 | `src/domain/config/config_entities.py` | ConfigRegistry | define immutable training and model configuration data structures | modify config values after initialization | ✅ Compiled Stubbed |
+| **FILE-002** | FOLDER-002 | `src/domain/model/chebyshev.py` | ChebyshevFunctionalBlock | compute order-2 chebyshev functional matrix polynomial contractions | flatten matrix tiles into 1d vectors | ✅ Compiled Stubbed |
+| **FILE-003** | FOLDER-002 | `src/domain/model/trace_activation.py` | ChebyshevFunctionalBlock | apply trace invariant activation scaling to matrix tiles | cause warp divergence across matrix dimensions | ✅ Compiled Stubbed |
+| **FILE-004** | FOLDER-002 | `src/domain/model/tokenizers.py` | ModalityTokenizers | tokenize and project image and text inputs | mix patch dimensions across sequence boundaries | ✅ Compiled Stubbed |
+| **FILE-005** | FOLDER-002 | `src/domain/model/riemannian.py` | ConformalRiemannianChart | map features to poincaré ball conformal charts | allow feature norms to exceed unit disk boundary | ✅ Compiled Stubbed |
+| **FILE-006** | FOLDER-002 | `src/domain/model/paradigm_heads.py` | ParadigmHeads | project pooled representations into paradigm output heads | share learnable parameters across paradigm head instances | ✅ Compiled Stubbed |
+| **FILE-007** | FOLDER-003 | `src/domain/data/dataset_interface.py` | DatasetRegistry | define abstract dataset loader and preprocessing interfaces | execute concrete download network requests | ✅ Compiled Stubbed |
+| **FILE-008** | FOLDER-004 | `src/domain/loss/loss_functions.py` | LossFunctions | compute supervised contrastive and dec clustering losses | mutate model gradients directly inside loss calculations | ✅ Compiled Stubbed |
+| **FILE-009** | FOLDER-005 | `src/infrastructure/storage/drive_manager.py` | DriveManager | mount google drive and resolve persistent directories | write outputs to colab local temporary storage | ✅ Compiled Stubbed |
+| **FILE-010** | FOLDER-006 | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load multimodal dataset batches | return un-collated variable length sequence batches | ✅ Compiled Stubbed |
+| **FILE-011** | FOLDER-007 | `src/infrastructure/metrics/metric_computer.py` | MetricComputer | compute 37 classification regression clustering statistical metrics | omit any metric key from evaluation dictionary | ✅ Compiled Stubbed |
+| **FILE-012** | FOLDER-008 | `src/infrastructure/streams/stream_manager.py` | StreamManager | isolate 6 cuda execution streams and optimizers | share cuda streams or scalers across models | ✅ Compiled Stubbed |
+| **FILE-013** | FOLDER-009 | `src/infrastructure/checkpoint/serializer.py` | CheckpointSerializer | serialize checkpoints with 37 metric signature filenames | overwrite existing valid checkpoints without versioning | ✅ Compiled Stubbed |
+| **FILE-014** | FOLDER-009 | `src/infrastructure/checkpoint/discovery.py` | CheckpointDiscovery | scan drive recursively and validate newest checkpoint | load corrupted or partial checkpoint files | ✅ Compiled Stubbed |
+| **FILE-015** | FOLDER-010 | `src/infrastructure/logging/session_logger.py` | SessionLogger | profile hardware stats and log session telemetry | block training execution during logging disk writes | ✅ Compiled Stubbed |
+| **FILE-016** | FOLDER-010 | `src/infrastructure/logging/prediction_logger.py` | PredictionLogger | export per sample predictions in csv json parquet | drop sample predictions or misalign target labels | ✅ Compiled Stubbed |
+| **FILE-017** | FOLDER-011 | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute epoch iterations across paradigm training streams | skip gradient scaling step during fp16 training | ✅ Compiled Stubbed |
+| **FILE-018** | FOLDER-012 | `src/application/fault_tolerance/recovery_manager.py` | RecoveryManager | catch runtime failures and trigger emergency recovery | swallow exceptions without saving emergency state | ✅ Compiled Stubbed |
+| **FILE-019** | FOLDER-013 | `src/interfaces/cli/main.py` | MainRunner | sequence end to end colab training pipeline | start training before validating storage and checkpoints | ✅ Compiled Stubbed |
 
 ---
 
@@ -335,12 +335,10 @@ REQ-015 -> SPEC-015 -> SOT-004 (TrainingOrchestrator) -> FOLDER-008 & FOLDER-011
 
 ---
 
-## 7. Next Phase: Code Skeleton (Phase 3)
+## 7. Phase 3 Code Skeleton Exit Gate Status
 
-Phase 1 & Phase 2 exit gates satisfied:
-- Every folder maps to a DIP layer (`domain/`, `application/`, `infrastructure/`, `interfaces/`).
-- Every file has a single responsibility statement (`<=7 words`), owning aggregate, and "must never" clause.
-- SRP check passed: no duplicate file responsibilities.
-- Traceability chain intact from REQ to FILE.
+- All 19 files contain full signatures, dataclasses, docstrings, type hints, and `raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")`.
+- `python -m py_compile` validated across all 19 files with **0 syntax errors**.
+- **Phase 3 Exit Gate:** ✅ PASSED.
 
-Ready to proceed to **Phase 3 (Code Skeleton - signatures and type declarations only)**.
+Ready for **Phase 4 Implementation (one node at a time, verified by execution and testing)**.

@@ -1,7 +1,7 @@
 """
 FILE-016 | FOLDER-010 | src/infrastructure/logging/prediction_logger.py
 Owning Aggregate: PredictionLogger
-Responsibility: export per sample predictions and 37 epoch metrics in compressed duckdb database
+Responsibility: export sample predictions and 37 metrics to consolidated duckdb database
 Must Never: drop sample predictions or misalign target labels
 """
 
@@ -12,21 +12,15 @@ from typing import List, Dict, Any
 
 class PredictionLogExporter:
     """
-    Detailed Per-Epoch Sample Prediction & 37-Metric Logger using DuckDB columnar database storage.
-    Stores sample predictions and complete 37 evaluation metrics in `predictions.duckdb` and `epoch_metrics.duckdb`
-    directly on Google Drive / persistent storage, appending and updating after every epoch.
+    Detailed Per-Epoch Sample Prediction & 37-Metric Logger using a single consolidated DuckDB database.
+    Stores sample predictions and complete 37 evaluation metrics in `multimodal_telemetry.duckdb`
+    directly on Google Drive / persistent storage.
     """
 
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
-        self.pred_dir = os.path.join(output_dir, "prediction_logs")
-        self.metrics_dir = os.path.join(output_dir, "metrics")
-        os.makedirs(self.pred_dir, exist_ok=True)
-        os.makedirs(self.metrics_dir, exist_ok=True)
-
-        self.db_path = os.path.join(self.pred_dir, "predictions.duckdb")
-        self.metrics_db_path = os.path.join(self.metrics_dir, "metrics.duckdb")
-
+        os.makedirs(output_dir, exist_ok=True)
+        self.db_path = os.path.join(output_dir, "multimodal_telemetry.duckdb")
         self._ensure_duckdb_installed()
         self._init_db_schema()
 
@@ -44,8 +38,9 @@ class PredictionLogExporter:
         """Initialize DuckDB table schemas for sample predictions and all 37 evaluation metrics."""
         try:
             import duckdb # type: ignore
-            # 1. Predictions Table Schema
             con = duckdb.connect(self.db_path, read_only=False)
+            
+            # 1. Predictions Table
             con.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     timestamp VARCHAR,
@@ -60,59 +55,30 @@ class PredictionLogExporter:
                     loss_contribution DOUBLE
                 )
             """)
-            con.close()
 
-            # 2. 37-Metrics Table Schema
-            m_con = duckdb.connect(self.metrics_db_path, read_only=False)
-            m_con.execute("""
+            # 2. 37-Metrics Table
+            con.execute("""
                 CREATE TABLE IF NOT EXISTS epoch_metrics (
                     timestamp VARCHAR,
                     stream_id INTEGER,
                     epoch INTEGER,
                     paradigm VARCHAR,
-                    acc DOUBLE,
-                    prec DOUBLE,
-                    rec DOUBLE,
-                    f1 DOUBLE,
-                    ce DOUBLE,
-                    classification_report VARCHAR,
-                    confmat VARCHAR,
-                    mse DOUBLE,
-                    mae DOUBLE,
-                    r2 DOUBLE,
-                    evr DOUBLE,
-                    infonce DOUBLE,
-                    ntxent DOUBLE,
-                    barlow DOUBLE,
-                    vicreg DOUBLE,
-                    mlmce DOUBLE,
-                    ppl DOUBLE,
-                    maerecon DOUBLE,
-                    recon DOUBLE,
-                    chamfer DOUBLE,
-                    linprobe DOUBLE,
-                    knn DOUBLE,
-                    silhouette DOUBLE,
-                    dbi DOUBLE,
-                    chi DOUBLE,
-                    dunn DOUBLE,
-                    ari DOUBLE,
-                    nmi DOUBLE,
-                    homog DOUBLE,
-                    compl DOUBLE,
-                    vmeasure DOUBLE,
-                    trust DOUBLE,
-                    cont DOUBLE,
-                    loglik DOUBLE,
-                    loglik_score DOUBLE,
-                    aic DOUBLE,
-                    bic DOUBLE
+                    acc DOUBLE, prec DOUBLE, rec DOUBLE, f1 DOUBLE, ce DOUBLE,
+                    classification_report VARCHAR, confmat VARCHAR,
+                    mse DOUBLE, mae DOUBLE, r2 DOUBLE, evr DOUBLE,
+                    infonce DOUBLE, ntxent DOUBLE, barlow DOUBLE, vicreg DOUBLE,
+                    mlmce DOUBLE, ppl DOUBLE,
+                    maerecon DOUBLE, recon DOUBLE, chamfer DOUBLE,
+                    linprobe DOUBLE, knn DOUBLE,
+                    silhouette DOUBLE, dbi DOUBLE, chi DOUBLE, dunn DOUBLE, ari DOUBLE, nmi DOUBLE, homog DOUBLE, compl DOUBLE, vmeasure DOUBLE,
+                    trust DOUBLE, cont DOUBLE,
+                    loglik DOUBLE, loglik_score DOUBLE, aic DOUBLE, bic DOUBLE
                 )
             """)
-            m_con.close()
-            print(f"[DuckDB Logger] Persistent databases initialized: {self.db_path} & {self.metrics_db_path}", flush=True)
+            con.close()
+            print(f"[DuckDB Logger] Consolidated database initialized: {self.db_path}", flush=True)
         except Exception as e:
-            print(f"[DuckDB Logger] Warning initializing schemas: {e}", flush=True)
+            print(f"[DuckDB Logger] Warning initializing consolidated schema: {e}", flush=True)
 
     def record_prediction(
         self,
@@ -140,7 +106,7 @@ class PredictionLogExporter:
         }
 
     def export_epoch_logs(self, epoch: int, predictions: List[Dict[str, Any]]) -> str:
-        """Appends epoch predictions directly into compressed `predictions.duckdb` database on Google Drive."""
+        """Appends epoch predictions directly into `predictions` table in `multimodal_telemetry.duckdb`."""
         if not predictions:
             return self.db_path
 
@@ -182,12 +148,11 @@ class PredictionLogExporter:
         timestamp: str,
         metrics: Dict[str, Any]
     ) -> str:
-        """Appends all 37 calculated evaluation metrics directly into `metrics.duckdb` table `epoch_metrics`."""
+        """Appends all 37 calculated metrics directly into `epoch_metrics` table in `multimodal_telemetry.duckdb`."""
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.metrics_db_path, read_only=False)
+            con = duckdb.connect(self.db_path, read_only=False)
 
-            # Generate synthetic classification report string representation
             cls_report = f"Accuracy: {metrics.get('acc', 0.0):.4f}, F1: {metrics.get('f1', 0.0):.4f}, Precision: {metrics.get('prec', 0.0):.4f}, Recall: {metrics.get('rec', 0.0):.4f}"
 
             row = (
@@ -246,6 +211,6 @@ class PredictionLogExporter:
 
             con.close()
         except Exception as e:
-            print(f"[DuckDB Logger] Error exporting epoch metrics to {self.metrics_db_path}: {e}", flush=True)
+            print(f"[DuckDB Logger] Error exporting epoch metrics to {self.db_path}: {e}", flush=True)
 
-        return self.metrics_db_path
+        return self.db_path

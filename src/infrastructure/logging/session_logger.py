@@ -1,7 +1,7 @@
 """
 FILE-015 | FOLDER-010 | src/infrastructure/logging/session_logger.py
 Owning Aggregate: SessionLogger
-Responsibility: profile hardware stats and log session telemetry in duckdb database
+Responsibility: profile hardware stats and log session telemetry in single consolidated duckdb database
 Must Never: block training execution during logging disk writes
 """
 
@@ -14,17 +14,16 @@ import psutil
 from typing import Dict, Any
 
 class SessionTelemetryLogger:
-    """Detailed Session & Hardware Utilization Logger storing telemetry in DuckDB database format on Google Drive."""
+    """Detailed Session & Hardware Utilization Logger storing telemetry in single `multimodal_telemetry.duckdb` database."""
 
     def __init__(self, logs_dir: str):
         self.logs_dir = logs_dir
-        self.session_logs_dir = os.path.join(logs_dir, "session_logs")
-        os.makedirs(self.session_logs_dir, exist_ok=True)
-        self.db_path = os.path.join(self.session_logs_dir, "session_telemetry.duckdb")
+        os.makedirs(logs_dir, exist_ok=True)
+        self.db_path = os.path.join(logs_dir, "multimodal_telemetry.duckdb")
         self._init_db_schema()
 
     def _init_db_schema(self) -> None:
-        """Initialize DuckDB table schema for session telemetry on persistent storage."""
+        """Initialize DuckDB table schema for session telemetry in single consolidated database."""
         try:
             import duckdb # type: ignore
             con = duckdb.connect(self.db_path, read_only=False)
@@ -45,12 +44,12 @@ class SessionTelemetryLogger:
                 )
             """)
             con.close()
-            print(f"[DuckDB Logger] Persistent session telemetry database initialized: {self.db_path}", flush=True)
+            print(f"[DuckDB Logger] Consolidated session telemetry initialized: {self.db_path}", flush=True)
         except Exception as e:
-            print(f"[DuckDB Logger] Warning initializing session telemetry at {self.db_path}: {e}", flush=True)
+            print(f"[DuckDB Logger] Warning initializing session telemetry schema at {self.db_path}: {e}", flush=True)
 
     def log_session_start(self) -> Dict[str, Any]:
-        """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state into DuckDB on Google Drive."""
+        """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state into DuckDB."""
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
         cuda_ver = torch.version.cuda if torch.cuda.is_available() else "N/A"
@@ -89,9 +88,6 @@ class SessionTelemetryLogger:
             con.close()
         except Exception as e:
             print(f"[DuckDB Logger] Error logging session start to {self.db_path}: {e}", flush=True)
-            log_file = os.path.join(self.session_logs_dir, f"{session_stats['session_id']}_start.json")
-            with open(log_file, "w") as f:
-                json.dump(session_stats, f, indent=2)
 
         return session_stats
 
@@ -108,7 +104,7 @@ class SessionTelemetryLogger:
         return stats
 
     def log_session_end(self, session_start_stats: Dict[str, Any]) -> None:
-        """Record final session summary and update DuckDB session record on Google Drive."""
+        """Record final session summary and update DuckDB session record."""
         end_time = time.strftime("%Y-%m-%d_%H-%M-%S")
         try:
             import duckdb # type: ignore
@@ -120,11 +116,3 @@ class SessionTelemetryLogger:
             print(f"[DuckDB Logger] Session telemetry record updated: {self.db_path}", flush=True)
         except Exception as e:
             print(f"[DuckDB Logger] Error updating session end at {self.db_path}: {e}", flush=True)
-            session_summary = {
-                **session_start_stats,
-                "end_time": end_time,
-                "final_hardware": self.profile_hardware()
-            }
-            log_file = os.path.join(self.session_logs_dir, f"{session_start_stats['session_id']}_summary.json")
-            with open(log_file, "w") as f:
-                json.dump(session_summary, f, indent=2)

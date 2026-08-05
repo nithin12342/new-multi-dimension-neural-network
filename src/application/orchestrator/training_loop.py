@@ -255,9 +255,9 @@ class ParadigmTrainingOrchestrator:
         session_stats = session_logger.log_session_start()
 
         total_streams = self.config.training.num_streams
-        num_epochs = self.config.training.num_epochs
+        num_epochs_budget = self.config.training.num_epochs
 
-        print(f"[Orchestrator] Starting 6-Stream Training Loop ({total_streams} streams x {num_epochs} epochs)...", flush=True)
+        print(f"[Orchestrator] Starting 6-Stream Training Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
 
         for stream_id in range(total_streams):
             model = models[stream_id]
@@ -274,10 +274,19 @@ class ParadigmTrainingOrchestrator:
                 model.load_state_dict(ckpt_data["model_state_dict"])
                 start_epoch = ckpt_data.get("epoch", 1) + 1
                 best_acc = ckpt_data.get("metrics", {}).get("acc", 0.0)
-                print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Resumed from epoch {start_epoch-1}", flush=True)
+                print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Resumed checkpoint state from epoch {start_epoch-1}", flush=True)
 
-            print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active ---", flush=True)
-            for epoch in range(start_epoch, num_epochs + 1):
+            target_epochs = num_epochs_budget
+            if start_epoch > target_epochs:
+                target_epochs = (start_epoch - 1) + num_epochs_budget
+                print(
+                    f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Previous run completed {start_epoch-1} epochs. "
+                    f"Auto-extending target to epoch {target_epochs} ({num_epochs_budget} new epochs)...",
+                    flush=True
+                )
+
+            print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
+            for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
                 losses_dict, preds, targets, embeds = self.run_epoch(
                     stream_id, epoch, model, train_loader, optimizer, scaler
@@ -324,7 +333,7 @@ class ParadigmTrainingOrchestrator:
 
                 print(
                     f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
-                    f"Epoch {epoch:03d}/{num_epochs:03d} | "
+                    f"Epoch {epoch:03d}/{target_epochs:03d} | "
                     f"Loss: {losses_dict.get('ce', 0.0):.4f} | "
                     f"Acc: {current_acc:.4f} | "
                     f"F1: {val_metrics.get('f1', 0.0):.4f} | "

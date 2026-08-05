@@ -27,9 +27,9 @@ class InfoNCELoss(nn.Module):
         # Labels for positive pairs
         labels = torch.cat([torch.arange(batch_size, 2 * batch_size), torch.arange(0, batch_size)], dim=0).to(z_i.device)
 
-        # Mask out self-contrastive similarities
+        # Mask out self-contrastive similarities (-1e4 fits safely in FP16/AMP without overflow)
         mask = torch.eye(2 * batch_size, dtype=torch.bool, device=z_i.device)
-        similarity_matrix = similarity_matrix.masked_fill(mask, -9e15)
+        similarity_matrix = similarity_matrix.masked_fill(mask, -1e4)
 
         loss = F.cross_entropy(similarity_matrix, labels)
         return loss

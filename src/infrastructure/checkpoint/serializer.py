@@ -1,23 +1,28 @@
 """
 FILE-013 | FOLDER-009 | src/infrastructure/checkpoint/serializer.py
 Owning Aggregate: CheckpointSerializer
-Responsibility: serialize checkpoints with 37 metric signature filenames
+Responsibility: serialize checkpoints using safetensors file format with 37 metric metadata
 Must Never: overwrite existing valid checkpoints without versioning
 """
 
 import os
 import glob
 import time
+import json
 import torch
 from typing import Dict, Any, List
+
+import safetensors.torch # type: ignore
+from safetensors import safe_open # type: ignore
+
 from src.domain.config.config_entities import PathConfig, SystemConfig
 from src.infrastructure.metrics.metric_computer import ThirtySevenMetricComputer
 
 class CheckpointSerializer:
     """
-    Consolidated Checkpoint Manager.
-    Saves intermediate full state checkpoints locally to prevent Google Drive bloat.
-    Maintains ONLY ONE consolidated FP16 best checkpoint file per stream (<50MB total across all streams) on Google Drive.
+    Consolidated SafeTensors Checkpoint Manager.
+    Saves weight checkpoints directly in HuggingFace `.safetensors` format with JSON metric headers.
+    Maintains ONLY ONE consolidated FP16 `.safetensors` checkpoint per stream on Google Drive.
     """
 
     def __init__(self, path_config: PathConfig = PathConfig()):
@@ -27,25 +32,24 @@ class CheckpointSerializer:
         os.makedirs(self.local_dir, exist_ok=True)
 
     def create_dummy_weights(self, models: List[torch.nn.Module], system_config: SystemConfig) -> List[str]:
-        """Create initial lightweight dummy weight files in local runtime storage."""
+        """Create initial lightweight dummy `.safetensors` weight files in local runtime storage."""
         saved_paths = []
         for i, model in enumerate(models, 1):
             local_target_dir = os.path.join(self.local_dir, f"model_{i:02d}")
             os.makedirs(local_target_dir, exist_ok=True)
-            dummy_path = os.path.join(local_target_dir, "dummy_v1.pt")
+            dummy_path = os.path.join(local_target_dir, "dummy_v1.safetensors")
 
-            # Compress weights to FP16 half precision to minimize size
+            # Convert weights to FP16 half precision
             fp16_state = {k: v.half() if torch.is_floating_point(v) else v for k, v in model.state_dict().items()}
-            dummy_state = {
-                "model_id": i,
+            metadata = {
+                "model_id": str(i),
                 "model_version": system_config.version,
                 "dataset_version": system_config.data.dataset_name,
                 "created_at": time.strftime("%Y-%m-%d_%H-%M-%S"),
                 "architecture": "MultimodalNFMNet",
-                "model_state_dict": fp16_state,
-                "is_dummy": True
+                "is_dummy": "true"
             }
-            torch.save(dummy_state, dummy_path)
+            safetensors.torch.save_file(fp16_state, dummy_path, metadata=metadata)
             saved_paths.append(dummy_path)
         return saved_paths
 
@@ -62,9 +66,8 @@ class CheckpointSerializer:
         is_best: bool = False
     ) -> str:
         """
-        Save intermediate checkpoint to local storage and prune old local files.
-        If is_best is True, exports a lightweight FP16 consolidated checkpoint (<10MB) to Google Drive,
-        automatically purging older Google Drive files to strictly enforce <50MB total Drive usage.
+        Save lightweight FP16 consolidated checkpoint in `.safetensors` format to Google Drive.
+        Purges older checkpoint files in the target folder so ONLY 1 single `.safetensors` file exists per stream.
         """
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         model_name = f"model_{stream_id + 1:02d}"
@@ -89,11 +92,11 @@ class CheckpointSerializer:
         }
         torch.save(checkpoint, local_latest_path)
 
-        # 2. Export Consolidated FP16 Weights to Google Drive (ONLY 1 FILE PER STREAM)
+        # 2. Export Consolidated FP16 Weights in .safetensors Format to Google Drive
         drive_target_dir = os.path.join(self.path_config.checkpoints_dir, model_name)
         os.makedirs(drive_target_dir, exist_ok=True)
 
-        filename = self.metric_computer.format_serialized_signature(
+        signature_name = self.metric_computer.format_serialized_signature(
             stream_id=stream_id + 1,
             timestamp=timestamp,
             epoch=epoch,
@@ -101,32 +104,55 @@ class CheckpointSerializer:
             dataset_version=system_config.data.dataset_name,
             metrics=metrics
         )
-        drive_filepath = os.path.join(drive_target_dir, filename)
+        safetensors_filename = signature_name.replace(".pt", ".safetensors")
+        drive_filepath = os.path.join(drive_target_dir, safetensors_filename)
 
-        # Build lightweight FP16 consolidated checkpoint
+        # Compress state dict to FP16 half precision
         fp16_state_dict = {k: v.half() if torch.is_floating_point(v) else v for k, v in model.state_dict().items()}
-        consolidated_ckpt = {
-            "stream_id": stream_id + 1,
-            "epoch": epoch,
+
+        # Build string metadata dictionary for SafeTensors header
+        metadata = {
+            "stream_id": str(stream_id + 1),
+            "epoch": str(epoch),
             "timestamp": timestamp,
             "model_version": system_config.version,
             "dataset_version": system_config.data.dataset_name,
-            "model_state_dict": fp16_state_dict,
-            "metrics": metrics,
-            "consolidated": True
+            "metrics": json.dumps(metrics),
+            "consolidated": "true",
+            "is_best": "true" if is_best else "false"
         }
 
-        # Purge ALL previous checkpoint files in this stream's Google Drive folder to prevent storage bloat
+        # Purge ALL previous checkpoint files in this stream's Google Drive folder
         for old_file in glob.glob(os.path.join(drive_target_dir, "*")):
             try:
                 os.remove(old_file)
             except Exception:
                 pass
 
-        # Save single consolidated file to Google Drive
-        torch.save(consolidated_ckpt, drive_filepath)
+        # Save SafeTensors weight file
+        safetensors.torch.save_file(fp16_state_dict, drive_filepath, metadata=metadata)
         return drive_filepath
 
     def load_checkpoint(self, checkpoint_path: str) -> Dict[str, Any]:
-        """Load and deserialize checkpoint dictionary from disk."""
-        return torch.load(checkpoint_path, map_location="cpu")
+        """Load and deserialize `.safetensors` or legacy `.pt` checkpoint file."""
+        if checkpoint_path.endswith(".safetensors"):
+            model_state_dict = safetensors.torch.load_file(checkpoint_path)
+            metadata: Dict[str, str] = {}
+            with safe_open(checkpoint_path, framework="pt") as f:
+                raw_meta = f.metadata()
+                if raw_meta:
+                    metadata = raw_meta
+
+            metrics = json.loads(metadata.get("metrics", "{}")) if "metrics" in metadata else {}
+            epoch = int(metadata.get("epoch", 1))
+            stream_id = int(metadata.get("stream_id", 1))
+
+            return {
+                "model_state_dict": model_state_dict,
+                "epoch": epoch,
+                "stream_id": stream_id,
+                "metrics": metrics,
+                "metadata": metadata
+            }
+        else:
+            return torch.load(checkpoint_path, map_location="cpu")

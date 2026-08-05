@@ -65,7 +65,7 @@ class TestMultimodalNFMNetPipelineE2E(unittest.TestCase):
         scanner = CheckpointDiscoveryScanner(os.path.join(self.test_dir, "checkpoints"))
         latest_ckpt = scanner.get_latest_valid_checkpoint(1)
         self.assertIsNotNone(latest_ckpt)
-        self.assertTrue(latest_ckpt.endswith(".pt"))
+        self.assertTrue(latest_ckpt.endswith(".safetensors"))
 
 if __name__ == "__main__":
     unittest.main()

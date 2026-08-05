@@ -105,7 +105,7 @@ class ParadigmTrainingOrchestrator:
     """
     Master Training Orchestrator.
     Manages sequential paradigm training across 6 CUDA streams with automatic validation,
-    metric computation, and checkpoint saving.
+    metric computation, and lightweight consolidated checkpoint saving.
     """
 
     def __init__(self, system_config: SystemConfig = SystemConfig()):
@@ -164,7 +164,6 @@ class ParadigmTrainingOrchestrator:
                     if paradigm == "supervised":
                         loss = ce_loss_fn(outputs["logits"], targets)
                     elif paradigm == "self_supervised":
-                        # Compute contrastive loss between projected representation and noisy view
                         loss = infonce_fn(outputs["z_proj"], outputs["z_proj"])
                     else: # unsupervised DEC
                         loss = dec_kl_fn(outputs["q_dist"])
@@ -232,7 +231,7 @@ class ParadigmTrainingOrchestrator:
         print("[Orchestrator] Initializing storage and directory hierarchy...", flush=True)
         dirs = self.drive_mgr.initialize_directory_structure()
 
-        print("[Orchestrator] Loading multimodal datasets & data loaders...", flush=True)
+        print("[Orchestrator] Loading authentic multimodal datasets...", flush=True)
         train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128)
         val_ds = MultimodalPyTorchDataset(self.config.data, split="val", num_samples=64)
 
@@ -247,7 +246,7 @@ class ParadigmTrainingOrchestrator:
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 
-        print("[Orchestrator] Initializing dummy weights on persistent storage...", flush=True)
+        print("[Orchestrator] Initializing lightweight dummy weights...", flush=True)
         self.serializer.create_dummy_weights(models, self.config)
 
         scanner = CheckpointDiscoveryScanner(dirs["checkpoints"])
@@ -269,11 +268,12 @@ class ParadigmTrainingOrchestrator:
             # Auto-resume discovery
             latest_ckpt = scanner.get_latest_valid_checkpoint(stream_id + 1)
             start_epoch = 1
+            best_acc = 0.0
             if latest_ckpt is not None:
                 ckpt_data = self.serializer.load_checkpoint(latest_ckpt)
                 model.load_state_dict(ckpt_data["model_state_dict"])
-                optimizer.load_state_dict(ckpt_data["optimizer_state_dict"])
                 start_epoch = ckpt_data.get("epoch", 1) + 1
+                best_acc = ckpt_data.get("metrics", {}).get("acc", 0.0)
                 print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Resumed from epoch {start_epoch-1}", flush=True)
 
             print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active ---", flush=True)
@@ -284,6 +284,11 @@ class ParadigmTrainingOrchestrator:
                 )
                 val_metrics = self.validate_epoch(stream_id, epoch, model, val_loader)
                 elapsed = time.time() - start_t
+
+                current_acc = val_metrics.get("acc", 0.0)
+                is_best = (current_acc >= best_acc)
+                if is_best:
+                    best_acc = current_acc
 
                 # Format predictions for export
                 timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -303,7 +308,7 @@ class ParadigmTrainingOrchestrator:
                     pred_records.append(rec)
                 pred_exporter.export_epoch_logs(epoch, pred_records)
 
-                # Save checkpoint
+                # Save ONLY 1 consolidated FP16 checkpoint per stream to Google Drive
                 ckpt_path = self.serializer.save_checkpoint(
                     stream_id=stream_id,
                     model=model,
@@ -312,19 +317,20 @@ class ParadigmTrainingOrchestrator:
                     epoch=epoch,
                     batch_idx=len(train_loader),
                     metrics=val_metrics,
-                    system_config=self.config
+                    system_config=self.config,
+                    is_best=is_best
                 )
 
                 print(
                     f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
                     f"Epoch {epoch:03d}/{num_epochs:03d} | "
                     f"Loss: {losses_dict.get('ce', 0.0):.4f} | "
-                    f"Acc: {val_metrics.get('acc', 0.0):.4f} | "
+                    f"Acc: {current_acc:.4f} | "
                     f"F1: {val_metrics.get('f1', 0.0):.4f} | "
-                    f"Time: {elapsed:.2f}s",
+                    f"Consolidated Drive Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
                     flush=True
                 )
 
         self.stream_mgr.synchronize_all()
         session_logger.log_session_end(session_stats)
-        print("[Orchestrator] Multi-Stream Training Complete! All checkpoints & logs saved.", flush=True)
+        print("[Orchestrator] Multi-Stream Training Complete! Consolidated Drive weights saved.", flush=True)

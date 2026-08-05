@@ -307,6 +307,7 @@ class ParadigmTrainingOrchestrator:
                     )
                     pred_records.append(rec)
                 pred_exporter.export_epoch_logs(epoch, pred_records)
+                pred_exporter.export_epoch_metrics(stream_id + 1, epoch, paradigm, timestamp, val_metrics)
 
                 # Save ONLY 1 consolidated FP16 checkpoint per stream to Google Drive
                 ckpt_path = self.serializer.save_checkpoint(

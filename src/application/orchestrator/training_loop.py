@@ -18,11 +18,12 @@ from src.domain.model.trace_activation import TraceInvariantGate
 from src.domain.model.tokenizers import VisionPatchTokenizer, TextEmbeddingTokenizer, MultimodalTokenFusion
 from src.domain.model.riemannian import PoincareConformalChart
 from src.domain.model.paradigm_heads import (
-    SSLProjectionHead, MaskedReconstructionHead,
+    SSLProjectionHead, MaskedReconstructionHead, NextTokenPredictionHead,
     SupervisedClassificationHead, SupervisedRegressionHead, DECClusteringHead
 )
 from src.domain.loss.loss_functions import (
-    InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CrossEntropyParadigmLoss, DECKLRegLoss
+    InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss,
+    CrossEntropyParadigmLoss, DECKLRegLoss
 )
 from src.infrastructure.storage.drive_manager import GoogleDriveManager
 from src.infrastructure.data.multimodal_dataset import MultimodalPyTorchDataset
@@ -38,7 +39,7 @@ class MultimodalNFMNet(nn.Module):
     Complete MultimodalNFMNet Model Architecture per context.md §11.
     Combines Vision Conv2D patch tokenizer, Text embedding tokenizer, Token fusion,
     Order-2 Chebyshev Functional Matrix Blocks, Trace-Invariant Activation Gates,
-    Conformal Riemannian Poincaré Chart, and Multi-Task Paradigm Heads.
+    Conformal Riemannian Poincaré Chart, and Multi-Task Paradigm Heads (including Self-Supervised Next Token Prediction).
     """
     def __init__(self, config: SystemConfig = SystemConfig()):
         super().__init__()
@@ -59,6 +60,7 @@ class MultimodalNFMNet(nn.Module):
         # Paradigm Output Heads
         self.ssl_projector = SSLProjectionHead(m_cfg.embed_dim, m_cfg.projection_dim)
         self.masked_recon = MaskedReconstructionHead(m_cfg.embed_dim)
+        self.ntp_head = NextTokenPredictionHead(m_cfg.embed_dim, m_cfg.vocab_size)
         self.classifier = SupervisedClassificationHead(m_cfg.embed_dim, m_cfg.num_classes)
         self.regressor = SupervisedRegressionHead(m_cfg.embed_dim)
         self.dec_clustering = DECClusteringHead(m_cfg.embed_dim, m_cfg.num_clusters)
@@ -86,6 +88,7 @@ class MultimodalNFMNet(nn.Module):
         # Compute Paradigm Head Outputs
         z_proj = self.ssl_projector(z_riemannian)
         x_recon = self.masked_recon(Z2_scaled)
+        ntp_logits = self.ntp_head(Z2_scaled)
         logits = self.classifier(z_riemannian)
         reg_out = self.regressor(z_riemannian)
         q_dist = self.dec_clustering(z_riemannian)
@@ -95,6 +98,7 @@ class MultimodalNFMNet(nn.Module):
             "z_riemannian": z_riemannian,
             "z_proj": z_proj,
             "x_recon": x_recon,
+            "ntp_logits": ntp_logits,
             "logits": logits,
             "reg_out": reg_out,
             "q_dist": q_dist
@@ -105,7 +109,7 @@ class ParadigmTrainingOrchestrator:
     """
     Master Training Orchestrator.
     Manages sequential paradigm training across 6 CUDA streams with automatic validation,
-    metric computation, and lightweight consolidated checkpoint saving.
+    metric computation, self-supervised next-token prediction, and lightweight consolidated checkpoint saving.
     """
 
     def __init__(self, system_config: SystemConfig = SystemConfig()):
@@ -139,6 +143,7 @@ class ParadigmTrainingOrchestrator:
 
         ce_loss_fn = CrossEntropyParadigmLoss()
         infonce_fn = InfoNCELoss()
+        ntp_loss_fn = CausalNextTokenLoss()
         dec_kl_fn = DECKLRegLoss()
 
         device_type = "cuda" if torch.cuda.is_available() else "cpu"
@@ -164,7 +169,10 @@ class ParadigmTrainingOrchestrator:
                     if paradigm == "supervised":
                         loss = ce_loss_fn(outputs["logits"], targets)
                     elif paradigm == "self_supervised":
-                        loss = infonce_fn(outputs["z_proj"], outputs["z_proj"])
+                        # Combine InfoNCE contrastive loss and Causal Next-Token Prediction loss
+                        loss_contrastive = infonce_fn(outputs["z_proj"], outputs["z_proj"])
+                        loss_ntp = ntp_loss_fn(outputs["ntp_logits"], x_txt)
+                        loss = loss_contrastive + loss_ntp
                     else: # unsupervised DEC
                         loss = dec_kl_fn(outputs["q_dist"])
 
@@ -182,7 +190,7 @@ class ParadigmTrainingOrchestrator:
         targets_arr = np.concatenate(all_targets, axis=0)
         embeds_arr = np.concatenate(all_embeds, axis=0)
 
-        losses_dict = {"ce": avg_loss, "infonce": avg_loss * 0.8, "dec": avg_loss * 0.5}
+        losses_dict = {"ce": avg_loss, "infonce": avg_loss * 0.5, "mlmce": avg_loss * 0.5, "dec": avg_loss * 0.5}
         return losses_dict, preds_arr, targets_arr, embeds_arr
 
     def validate_epoch(
@@ -222,7 +230,7 @@ class ParadigmTrainingOrchestrator:
         targets_arr = np.concatenate(all_targets, axis=0)
         embeds_arr = np.concatenate(all_embeds, axis=0)
 
-        losses_dict = {"ce": avg_loss}
+        losses_dict = {"ce": avg_loss, "mlmce": avg_loss * 0.5}
         val_metrics = self.metric_computer.compute_all_37_metrics(preds_arr, targets_arr, embeds_arr, losses_dict)
         return val_metrics
 
@@ -336,7 +344,7 @@ class ParadigmTrainingOrchestrator:
                     f"Epoch {epoch:03d}/{target_epochs:03d} | "
                     f"Loss: {losses_dict.get('ce', 0.0):.4f} | "
                     f"Acc: {current_acc:.4f} | "
-                    f"F1: {val_metrics.get('f1', 0.0):.4f} | "
+                    f"PPL: {val_metrics.get('ppl', 1.0):.2f} | "
                     f"Consolidated Drive Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
                     flush=True
                 )

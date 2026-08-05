@@ -34,6 +34,16 @@ class MaskedReconstructionHead(nn.Module):
         """Decode sequence tokens [B, N, 256] -> [B, N, 256]."""
         return self.decoder(Z)
 
+class NextTokenPredictionHead(nn.Module):
+    """Self-Supervised Causal Next-Token Prediction Head for Thought Process Sequences."""
+    def __init__(self, in_dim: int = 256, vocab_size: int = 30522):
+        super().__init__()
+        self.lm_head = nn.Linear(in_dim, vocab_size)
+
+    def forward(self, Z: torch.Tensor) -> torch.Tensor:
+        """Project sequence representations [B, N, 256] -> Causal Vocabulary Logits [B, N, 30522]."""
+        return self.lm_head(Z)
+
 class SupervisedClassificationHead(nn.Module):
     """Supervised Classification Head (y_cls = W_cls * Z_bar + b_cls)."""
     def __init__(self, in_dim: int = 256, num_classes: int = 10):
@@ -67,7 +77,6 @@ class DECClusteringHead(nn.Module):
         Compute soft cluster assignment distribution q_ij of shape [B, Num_Clusters].
         q_ij = (1 + ||z_i - mu_j||^2 / alpha)^(-(alpha+1)/2) / sum_j' (...)
         """
-        # z_bar: [B, D], centroids: [K, D]
         dist_sq = torch.sum((z_bar.unsqueeze(1) - self.centroids.unsqueeze(0)) ** 2, dim=-1) # [B, K]
         q_num = (1.0 + dist_sq / self.alpha) ** (- (self.alpha + 1.0) / 2.0)
         q = q_num / torch.sum(q_num, dim=1, keepdim=True)

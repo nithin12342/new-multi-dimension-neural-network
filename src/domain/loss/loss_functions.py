@@ -89,6 +89,28 @@ class VICRegLoss(nn.Module):
         loss = self.sim_coeff * sim_loss + self.std_coeff * std_loss + self.cov_coeff * cov_loss
         return loss
 
+class CausalNextTokenLoss(nn.Module):
+    """Causal Next-Token Prediction Loss over Auto-Regressive Thought Sequences."""
+    def __init__(self):
+        super().__init__()
+        self.loss_fn = nn.CrossEntropyLoss()
+
+    def forward(self, ntp_logits: torch.Tensor, target_tokens: torch.Tensor) -> torch.Tensor:
+        """
+        Compute causal next-token cross-entropy loss.
+        ntp_logits: [B, N, V] (where N >= S text tokens)
+        target_tokens: [B, S]
+        """
+        batch_size, seq_len = target_tokens.shape
+        # Extract text portion of sequence logits
+        text_logits = ntp_logits[:, -seq_len:, :] # [B, S, V]
+
+        # Shift logits and targets for causal next-token prediction
+        shift_logits = text_logits[:, :-1, :].contiguous().view(-1, text_logits.size(-1)) # [B*(S-1), V]
+        shift_targets = target_tokens[:, 1:].contiguous().view(-1) # [B*(S-1)]
+
+        return self.loss_fn(shift_logits, shift_targets)
+
 class CrossEntropyParadigmLoss(nn.Module):
     """Cross-Entropy Classification Loss."""
     def __init__(self):

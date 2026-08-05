@@ -17,18 +17,57 @@ class SixStreamManager:
 
     def __init__(self, config: TrainingConfig = TrainingConfig()):
         self.config = config
-        self.streams: List[torch.cuda.Stream] = []
-        self.scalers: List[torch.cuda.amp.GradScaler] = []
+        self.num_streams = config.num_streams
+        self.streams: List[Any] = []
+        self.scalers: List[Any] = []
         self.optimizers: List[torch.optim.Optimizer] = []
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def initialize_streams(self, models: List[torch.nn.Module]) -> None:
         """Initialize 6 isolated CUDA streams, AdamW optimizers, and GradScalers."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        assert len(models) == self.num_streams, f"Expected {self.num_streams} models, got {len(models)}"
 
-    def get_stream_context(self, stream_id: int) -> torch.cuda.Stream:
+        self.streams.clear()
+        self.scalers.clear()
+        self.optimizers.clear()
+
+        for i, model in enumerate(models):
+            model.to(self.device)
+            # 1. Create CUDA stream if CUDA available
+            if torch.cuda.is_available():
+                stream = torch.cuda.Stream()
+            else:
+                stream = None
+            self.streams.append(stream)
+
+            # 2. Create independent AdamW optimizer per stream model
+            opt = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
+            self.optimizers.append(opt)
+
+            # 3. Create independent AMP GradScaler per stream
+            enabled = self.config.use_amp and torch.cuda.is_available()
+            try:
+                scaler = torch.amp.GradScaler('cuda', enabled=enabled)
+            except (AttributeError, TypeError):
+                scaler = torch.cuda.amp.GradScaler(enabled=enabled)
+            self.scalers.append(scaler)
+
+    def get_stream_context(self, stream_id: int):
         """Return CUDA stream for specified stream index (0 to 5)."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        stream = self.streams[stream_id]
+        if stream is not None and torch.cuda.is_available():
+            return torch.cuda.stream(stream)
+        else:
+            # Dummy context manager for CPU execution
+            class DummyContext:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            return DummyContext()
 
     def synchronize_all(self) -> None:
         """Synchronize all 6 CUDA streams before metric collection."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        if torch.cuda.is_available():
+            for stream in self.streams:
+                if stream is not None:
+                    stream.synchronize()
+            torch.cuda.synchronize()

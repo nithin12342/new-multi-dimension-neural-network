@@ -19,27 +19,47 @@ class ChebyshevFunctionalBlock(nn.Module):
         self.embed_dim = embed_dim
         self.tile_dim = tile_dim
         self.order = order
-        # Coefficient matrices C0, C1, C2
-        self.C0 = nn.Parameter(torch.empty(embed_dim, embed_dim))
-        self.C1 = nn.Parameter(torch.empty(embed_dim, embed_dim))
-        self.C2 = nn.Parameter(torch.empty(embed_dim, embed_dim))
+        assert embed_dim == tile_dim * tile_dim, f"embed_dim ({embed_dim}) must equal tile_dim^2 ({tile_dim*tile_dim})"
+
+        # Trainable 16x16 coefficient matrices C0, C1, C2
+        self.C0 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
+        self.C1 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
+        self.C2 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
 
     def compute_chebyshev_bases(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Compute T0(X), T1(X), T2(X) for input matrix tiles X of shape [B*N, 16, 16].
-        Returns tuple of 3 tensors each of shape [B*N, 16, 16].
+        Compute T0(X), T1(X), T2(X) for input matrix tiles X of shape [B_N, 16, 16].
+        T0(X) = X
+        T1(X) = X
+        T2(X) = 2 * (X @ X^T) - X
+        Returns tuple of 3 tensors each of shape [B_N, 16, 16].
         """
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        T0 = X
+        T1 = X
+        # Batch matrix multiplication: X @ X^T -> [B_N, 16, 16]
+        XXT = torch.bmm(X, X.transpose(1, 2))
+        T2 = 2.0 * XXT - X
+        return T0, T1, T2
 
     def contract_tensor_cores(self, T0: torch.Tensor, T1: torch.Tensor, T2: torch.Tensor) -> torch.Tensor:
         """
         Contract Chebyshev bases with trainable coefficient matrices C0, C1, C2.
-        Returns output tensor Y of shape [B*N, 16, 16].
+        Y = T0 @ C0 + T1 @ C1 + T2 @ C2
+        Returns output tensor Y of shape [B_N, 16, 16].
         """
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        Y = torch.matmul(T0, self.C0) + torch.matmul(T1, self.C1) + torch.matmul(T2, self.C2)
+        return Y
 
     def forward(self, Z: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass: reshape [B, N, D] -> [B*N, 16, 16] tiles, evaluate bases, contract, and reshape back.
+        Forward pass:
+        Input Z: [B, N, 256]
+        Reshape: [B*N, 16, 16]
+        Bases -> Contraction -> Reshape back: [B, N, 256]
         """
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        B, N, D = Z.shape
+        X = Z.view(-1, self.tile_dim, self.tile_dim)
+        T0, T1, T2 = self.compute_chebyshev_bases(X)
+        Y = self.contract_tensor_cores(T0, T1, T2)
+        Z_out = Y.view(B, N, D)
+        return Z_out

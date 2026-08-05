@@ -19,13 +19,27 @@ class TraceInvariantGate(nn.Module):
 
     def compute_matrix_trace(self, Y: torch.Tensor) -> torch.Tensor:
         """
-        Compute matrix trace Tr(Y) for batched 16x16 tiles [B*N, 16, 16].
-        Returns trace scaling scalar tensor of shape [B*N, 1, 1].
+        Compute matrix trace Tr(Y) for batched 16x16 tiles [B_N, 16, 16].
+        Returns trace scaling scalar tensor of shape [B_N, 1, 1].
         """
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        # Sum diagonal elements along dim 1 and 2
+        trace = torch.diagonal(Y, dim1=1, dim2=2).sum(dim=-1, keepdim=True).unsqueeze(-1)
+        return trace
 
     def forward(self, Y: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass: compute scale factor and perform elementwise multiplication Y * scale(Y).
+        Forward pass: compute scale factor Sigmoid(Tr(Y)/16) and apply elementwise scaling.
+        Supports both 3D [B_N, 16, 16] and 3D token tensors [B, N, D].
         """
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        if Y.ndim == 3 and Y.shape[1] != self.tile_dim:
+            # Shape is [B, N, D] -> view as [B*N, 16, 16]
+            B, N, D = Y.shape
+            tiles = Y.view(-1, self.tile_dim, self.tile_dim)
+            trace = self.compute_matrix_trace(tiles) # [B*N, 1, 1]
+            scale = torch.sigmoid(trace / float(self.tile_dim)) # [B*N, 1, 1]
+            scaled_tiles = tiles * scale
+            return scaled_tiles.view(B, N, D)
+        else:
+            trace = self.compute_matrix_trace(Y)
+            scale = torch.sigmoid(trace / float(self.tile_dim))
+            return Y * scale

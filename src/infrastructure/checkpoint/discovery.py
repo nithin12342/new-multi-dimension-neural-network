@@ -21,12 +21,36 @@ class CheckpointDiscoveryScanner:
 
     def scan_drive_for_checkpoints(self, model_id: int) -> List[str]:
         """Recursively scan Google Drive model sub-folder for all existing checkpoint files."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        model_dir = os.path.join(self.checkpoints_dir, f"model_{model_id:02d}")
+        if not os.path.exists(model_dir):
+            return []
+
+        ckpt_files = []
+        for root, _, files in os.walk(model_dir):
+            for f in files:
+                if f.endswith(".pt") or f.endswith(".ckpt"):
+                    ckpt_files.append(os.path.join(root, f))
+
+        # Sort by modification time descending
+        ckpt_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        return ckpt_files
 
     def validate_checkpoint_integrity(self, checkpoint_path: str) -> bool:
         """Validate checkpoint integrity by attempting safe torch load of required keys."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        try:
+            ckpt = torch.load(checkpoint_path, map_location="cpu")
+            required_keys = ["model_state_dict", "epoch"]
+            for key in required_keys:
+                if key not in ckpt:
+                    return False
+            return True
+        except Exception:
+            return False
 
     def get_latest_valid_checkpoint(self, model_id: int) -> Optional[str]:
         """Find, validate, and return newest valid checkpoint path for model stream."""
-        raise NotImplementedError("Stubbed for Phase 3 Code Skeleton")
+        ckpts = self.scan_drive_for_checkpoints(model_id)
+        for ckpt_path in ckpts:
+            if self.validate_checkpoint_integrity(ckpt_path):
+                return ckpt_path
+        return None

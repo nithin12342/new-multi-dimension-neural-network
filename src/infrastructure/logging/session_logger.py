@@ -14,7 +14,7 @@ import psutil
 from typing import Dict, Any
 
 class SessionTelemetryLogger:
-    """Detailed Session & Hardware Utilization Logger storing telemetry in DuckDB database format."""
+    """Detailed Session & Hardware Utilization Logger storing telemetry in DuckDB database format on Google Drive."""
 
     def __init__(self, logs_dir: str):
         self.logs_dir = logs_dir
@@ -24,10 +24,10 @@ class SessionTelemetryLogger:
         self._init_db_schema()
 
     def _init_db_schema(self) -> None:
-        """Initialize DuckDB table schema for session telemetry."""
+        """Initialize DuckDB table schema for session telemetry on persistent storage."""
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.db_path)
+            con = duckdb.connect(self.db_path, read_only=False)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS session_telemetry (
                     session_id VARCHAR,
@@ -45,11 +45,12 @@ class SessionTelemetryLogger:
                 )
             """)
             con.close()
-        except Exception:
-            pass
+            print(f"[DuckDB Logger] Persistent session telemetry database initialized: {self.db_path}", flush=True)
+        except Exception as e:
+            print(f"[DuckDB Logger] Warning initializing session telemetry at {self.db_path}: {e}", flush=True)
 
     def log_session_start(self) -> Dict[str, Any]:
-        """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state."""
+        """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state into DuckDB on Google Drive."""
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
         cuda_ver = torch.version.cuda if torch.cuda.is_available() else "N/A"
@@ -68,7 +69,7 @@ class SessionTelemetryLogger:
 
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.db_path)
+            con = duckdb.connect(self.db_path, read_only=False)
             con.execute("""
                 INSERT INTO session_telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -86,8 +87,8 @@ class SessionTelemetryLogger:
                 round(psutil.virtual_memory().used / (1024 ** 3), 2)
             ))
             con.close()
-        except Exception:
-            # Fallback JSON logging
+        except Exception as e:
+            print(f"[DuckDB Logger] Error logging session start to {self.db_path}: {e}", flush=True)
             log_file = os.path.join(self.session_logs_dir, f"{session_stats['session_id']}_start.json")
             with open(log_file, "w") as f:
                 json.dump(session_stats, f, indent=2)
@@ -107,16 +108,18 @@ class SessionTelemetryLogger:
         return stats
 
     def log_session_end(self, session_start_stats: Dict[str, Any]) -> None:
-        """Record final session summary and update DuckDB session record."""
+        """Record final session summary and update DuckDB session record on Google Drive."""
         end_time = time.strftime("%Y-%m-%d_%H-%M-%S")
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.db_path)
+            con = duckdb.connect(self.db_path, read_only=False)
             con.execute("""
                 UPDATE session_telemetry SET end_time = ? WHERE session_id = ?
             """, (end_time, session_start_stats["session_id"]))
             con.close()
-        except Exception:
+            print(f"[DuckDB Logger] Session telemetry record updated: {self.db_path}", flush=True)
+        except Exception as e:
+            print(f"[DuckDB Logger] Error updating session end at {self.db_path}: {e}", flush=True)
             session_summary = {
                 **session_start_stats,
                 "end_time": end_time,

@@ -14,7 +14,7 @@ class PredictionLogExporter:
     """
     Detailed Per-Epoch Sample Prediction Logger using DuckDB columnar database storage.
     Stores all epoch predictions in a single, highly compressed `predictions.duckdb` file
-    with automatic compression (Dictionary, RLE, Bit-packing, ZSTD).
+    directly on Google Drive / persistent storage, appending and updating after every epoch.
     """
 
     def __init__(self, output_dir: str):
@@ -36,10 +36,10 @@ class PredictionLogExporter:
                 pass
 
     def _init_db_schema(self) -> None:
-        """Initialize DuckDB table schema for prediction logs."""
+        """Initialize DuckDB table schema for prediction logs on persistent storage."""
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.db_path)
+            con = duckdb.connect(self.db_path, read_only=False)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     timestamp VARCHAR,
@@ -55,8 +55,9 @@ class PredictionLogExporter:
                 )
             """)
             con.close()
+            print(f"[DuckDB Logger] Persistent prediction database initialized: {self.db_path}", flush=True)
         except Exception as e:
-            print(f"[PredictionLogExporter] Warning initializing DuckDB schema: {e}")
+            print(f"[DuckDB Logger] Warning initializing schema at {self.db_path}: {e}", flush=True)
 
     def record_prediction(
         self,
@@ -84,13 +85,13 @@ class PredictionLogExporter:
         }
 
     def export_epoch_logs(self, epoch: int, predictions: List[Dict[str, Any]]) -> str:
-        """Appends epoch predictions directly into compressed `predictions.duckdb` database."""
+        """Appends epoch predictions directly into compressed `predictions.duckdb` database on Google Drive."""
         if not predictions:
             return self.db_path
 
         try:
             import duckdb # type: ignore
-            con = duckdb.connect(self.db_path)
+            con = duckdb.connect(self.db_path, read_only=False)
 
             rows = [
                 (
@@ -114,6 +115,7 @@ class PredictionLogExporter:
 
             con.close()
         except Exception as e:
+            print(f"[DuckDB Logger] Error appending to {self.db_path}: {e}", flush=True)
             # Fallback JSON logging if DuckDB connection fails
             json_fallback = os.path.join(self.pred_dir, f"epoch_{epoch:03d}_predictions.json")
             with open(json_fallback, "w") as f:

@@ -126,8 +126,6 @@ class ParadigmTrainingOrchestrator:
         ntp_loss_fn = CausalNextTokenLoss()
         dec_kl_fn = DECKLRegLoss()
 
-        device_type = "cuda" if torch.cuda.is_available() else "cpu"
-        use_amp = self.config.training.use_amp and torch.cuda.is_available()
 
         for batch in dataloader:
             x_img = batch["image"].to(device)
@@ -138,52 +136,41 @@ class ParadigmTrainingOrchestrator:
             targets = batch["label"].to(device)
 
             optimizer.zero_grad()
-            with self.stream_mgr.get_stream_context(stream_id):
-                try:
-                    autocast_ctx = torch.amp.autocast(device_type, enabled=use_amp)
-                except (AttributeError, TypeError):
-                    autocast_ctx = torch.cuda.amp.autocast(enabled=use_amp)
 
-                with autocast_ctx:
-                    # View 1: Complete 5-Modality Pass
-                    outputs1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            # View 1: Complete 5-Modality Pass
+            outputs1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
 
-                    # View 2: Cross-Modal Augmented Pass (Visuomotor vs Audio-Text)
-                    x_img_aug = torch.roll(x_img, shifts=1, dims=-1)
-                    outputs2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            # View 2: Cross-Modal Augmented Pass (pixel-shifted image creates distinct visual features)
+            x_img_aug = x_img + torch.randn_like(x_img) * 0.1
+            outputs2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
 
-                    z_proj1 = outputs1["z_proj"]
-                    z_proj2 = outputs2["z_proj"]
+            z_proj1 = outputs1["z_proj"]
+            z_proj2 = outputs2["z_proj"]
 
-                    paradigm = self.config.training.stream_paradigms[stream_id]
+            paradigm = self.config.training.stream_paradigms[stream_id]
 
-                    if paradigm in ["self_supervised_ntp", "self_supervised"]:
-                        loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2)
-                    elif paradigm == "self_supervised_barlow":
-                        loss = barlow_fn(z_proj1, z_proj2) + ntp_loss_fn(outputs1["ntp_logits"], x_txt)
-                    elif paradigm == "self_supervised_vicreg":
-                        loss = vicreg_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
-                    elif paradigm == "self_supervised_mae":
-                        loss = torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
-                    elif paradigm in ["self_supervised_dec", "unsupervised"]:
-                        loss = dec_kl_fn(outputs1["q_dist"])
-                    else: # self_supervised_omni
-                        loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+            if paradigm in ["self_supervised_ntp", "self_supervised"]:
+                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2)
+            elif paradigm == "self_supervised_barlow":
+                loss = barlow_fn(z_proj1, z_proj2) + ntp_loss_fn(outputs1["ntp_logits"], x_txt)
+            elif paradigm == "self_supervised_vicreg":
+                loss = vicreg_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+            elif paradigm == "self_supervised_mae":
+                loss = torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+            elif paradigm in ["self_supervised_dec", "unsupervised"]:
+                loss = dec_kl_fn(outputs1["q_dist"])
+            else: # self_supervised_omni
+                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
 
+            # Skip only truly corrupted batches
             if torch.isnan(loss) or torch.isinf(loss):
+                print(f"  [WARNING] Skipping batch with non-finite loss in epoch {epoch}", flush=True)
                 continue
 
-            # Standard Robust Optimization Step
-            if use_amp and scaler is not None:
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+            # Clean FP32 Optimization: backward -> clip -> step (no GradScaler, no autocast)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
 
             total_loss += loss.item()
             valid_batches += 1
@@ -234,7 +221,7 @@ class ParadigmTrainingOrchestrator:
 
                 # Validation View Augmentation for dynamic contrastive metric
                 outputs1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
-                x_img_aug = torch.roll(x_img, shifts=1, dims=-1)
+                x_img_aug = x_img + torch.randn_like(x_img) * 0.1
                 outputs2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
 
                 loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(outputs1["z_proj"], outputs2["z_proj"])

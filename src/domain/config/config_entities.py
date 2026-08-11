@@ -55,9 +55,9 @@ class TrainingConfig:
     """Immutable configuration for 6-stream unified self-supervised omni-pretraining orchestrator."""
     num_streams: int = 6
     num_epochs: int = 50
-    learning_rate: float = 1e-3
+    learning_rate: float = 3e-4
     weight_decay: float = 1e-4
-    use_amp: bool = True
+    use_amp: bool = False
     seed: int = 42
     stream_paradigms: Tuple[str, ...] = (
         "self_supervised_ntp",

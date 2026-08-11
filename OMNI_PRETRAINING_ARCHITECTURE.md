@@ -1,12 +1,25 @@
 # 🌌 `MultimodalNFMNet-OmniPretrain` Blueprint
 
-> **Master Architecture Specification:** Tri-Aggregate Architecture (Encoder, Core Model, **Single Nested Matrix Decoder**) using **Order-2 Chebyshev Functional Nested Matrix Polynomial Contractions** across **Encoder**, **Core Model**, and **Decoder** for Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular/Point-Cloud) Ingesting the Open-Source **E-MM1 Dataset (`encord-team/E-MM1-1M`)**. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
+> **Master Architecture Specification:** **Unified 6-Stream Self-Supervised Omni-Pretraining Framework** across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular/Point-Cloud) Ingesting the Open-Source **E-MM1 Dataset (`encord-team/E-MM1-1M`)**. Structured into **3 Core Tri-Aggregates** (`CombinedOmniEncoder`, `FunctionalCoreModel`, `SingleNestedMatrixDecoder`) using **Order-2 Chebyshev Functional Nested Matrix Polynomial Contractions** and the **GigaTokenizer High-Throughput Tokenization Engine**.
 
 ---
 
-## 1. Nested Matrix Tri-Aggregate Architectural Breakdown
+## 1. Unified 6-Stream Self-Supervised Pretraining Map
 
-The core functionality of mapping higher dimensions into lower dimensions using **Nested Matrix Contractions** is strictly applied across **Encoder**, **Core Model**, and **Single Decoder**:
+All 6 parallel CUDA execution streams execute **100% Self-Supervised Omni-Modality Pretraining (SSL)** over the 5 modalities (Video, Image, Text, Audio, Tabular):
+
+| Stream ID | Stream SSL Strategy | Active Self-Supervised Loss Objective | Pretraining Focus & Target |
+|---|---|---|---|
+| **Stream 1** | `self_supervised_ntp` | $\mathcal{L}_{\text{NTP}} + \mathcal{L}_{\text{InfoNCE}}$ | Causal Thought Sequence Prediction & InfoNCE Contrastive SSL |
+| **Stream 2** | `self_supervised_barlow` | $\mathcal{L}_{\text{Barlow}} + \mathcal{L}_{\text{NTP}}$ | Barlow Twins Cross-Correlation Regularization & Thought LM |
+| **Stream 3** | `self_supervised_vicreg` | $\mathcal{L}_{\text{VICReg}} + \mathcal{L}_{\text{MAE}}$ | VICReg Variance-Invariance-Covariance Regularization & MAE |
+| **Stream 4** | `self_supervised_mae` | $\mathcal{L}_{\text{MAE}}$ | 5-Modality Masked Feature Reconstruction (MAE) |
+| **Stream 5** | `self_supervised_dec` | $\mathcal{L}_{\text{DEC}}$ | Deep Embedded Hyperbolic Clustering in Poincaré Ball ($\mathbb{D}^n$) |
+| **Stream 6** | `self_supervised_omni` | $\mathcal{L}_{\text{NTP}} + \mathcal{L}_{\text{InfoNCE}} + \mathcal{L}_{\text{MAE}}$ | Full Multi-Task Unified Omni-Modality Self-Supervised Pretraining |
+
+---
+
+## 2. Tri-Aggregate Architectural Breakdown
 
 ```
 [5-Modality Input Tensors] (Video, Image, Text, Audio, Tabular)
@@ -33,28 +46,15 @@ The core functionality of mapping higher dimensions into lower dimensions using 
 │ 3. SingleNestedMatrixDecoder (src/domain/model/decoder.py)       │
 │    - DECODER CHEBYSHEV NESTED MATRIX CONTRACTION BLOCK (16x16)   │
 │    - Trace-Invariant Activation Scaling                          │
-│    - Single Combined Decoder Projection Engine -> Output Dict:   │
+│    - Single Combined Multi-Task Decoder Engine -> Outputs:       │
 │      * ntp_logits: Causal Thought LM Logits [B, N, 30522]       │
 │      * x_recon: Masked Autoencoder Reconstruction [B, N, 256]    │
 │      * z_proj: L2-Normalized Contrastive Projection [B, 128]    │
-│      * logits: Classification Logits [B, Num_Classes]           │
+│      * logits: Supervised Logits [B, Num_Classes]                │
 │      * reg_out: Regression Scalar Output [B, 1]                  │
 │      * q_dist: Student-t Soft Cluster Assignments [B, Clusters]  │
 └──────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 2. Mathematical Equations for Nested Matrix Contractions
-
-Across Encoder, Core, and Single Decoder, $16 \times 16$ tile matrix polynomial contractions compress and transform features:
-
-1. **Polynomial Basis Calculation:**
-   $$T_0(X) = X, \quad T_1(X) = X, \quad T_2(X) = 2 X X^T - X$$
-2. **Matrix Core Contraction:**
-   $$Y = T_0(X) \cdot C_0 + T_1(X) \cdot C_1 + T_2(X) \cdot C_2 = X C_0 + X C_1 + \left(2 X X^T - X\right) C_2$$
-3. **Trace-Invariant Activation Scaling:**
-   $$\text{scale}(Y) = \sigma\left( \frac{\text{Tr}(Y)}{16} \right), \quad Z_{\text{out}} = Y \odot \text{scale}(Y)$$
 
 ---
 

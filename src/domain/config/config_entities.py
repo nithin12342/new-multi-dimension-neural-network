@@ -1,7 +1,7 @@
 """
 FILE-001 | FOLDER-001 | src/domain/config/config_entities.py
 Owning Aggregate: ConfigRegistry
-Responsibility: define immutable training and model configuration data structures
+Responsibility: define immutable 5-modality self-supervised training and model configuration data structures
 Must Never: modify config values after initialization
 """
 
@@ -27,8 +27,8 @@ class ModelConfig:
 
 @dataclass(frozen=True)
 class DataConfig:
-    """Immutable configuration for multimodal dataset loading and preprocessing."""
-    dataset_name: str = "open_multimodal_v1"
+    """Immutable configuration for 5-modality E-MM1 dataset loading and preprocessing."""
+    dataset_name: str = "encord-team/E-MM1-1M"
     batch_size: int = 32
     num_workers: int = 2
     train_ratio: float = 0.8
@@ -52,7 +52,7 @@ class PathConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    """Immutable configuration for multi-stream training orchestrator."""
+    """Immutable configuration for 6-stream unified self-supervised omni-pretraining orchestrator."""
     num_streams: int = 6
     num_epochs: int = 50
     learning_rate: float = 1e-3
@@ -60,8 +60,12 @@ class TrainingConfig:
     use_amp: bool = True
     seed: int = 42
     stream_paradigms: Tuple[str, ...] = (
-        "supervised", "self_supervised", "unsupervised",
-        "supervised", "self_supervised", "unsupervised"
+        "self_supervised_ntp",
+        "self_supervised_barlow",
+        "self_supervised_vicreg",
+        "self_supervised_mae",
+        "self_supervised_dec",
+        "self_supervised_omni"
     )
 
 @dataclass(frozen=True)

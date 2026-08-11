@@ -1,7 +1,7 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across 5-modality paradigm training streams via tri-aggregate nested matrix architecture
+Responsibility: execute epoch iterations across 6 unified self-supervised omni-pretraining streams
 Must Never: skip gradient scaling step during fp16 training
 """
 
@@ -85,8 +85,8 @@ class MultimodalNFMNet(nn.Module):
 class ParadigmTrainingOrchestrator:
     """
     Master Training Orchestrator.
-    Manages sequential 5-modality paradigm training across 6 CUDA streams with automatic validation,
-    metric computation, self-supervised next-token prediction, and lightweight consolidated checkpoint saving.
+    Manages 6 unified self-supervised omni-pretraining CUDA streams over 5 modalities (Video, Image, Text, Audio, Tabular)
+    with automatic validation, 37-metric computation, and lightweight consolidated SafeTensors checkpoint saving.
     """
 
     def __init__(self, system_config: SystemConfig = SystemConfig()):
@@ -118,8 +118,9 @@ class ParadigmTrainingOrchestrator:
         all_targets = []
         all_embeds = []
 
-        ce_loss_fn = CrossEntropyParadigmLoss()
         infonce_fn = InfoNCELoss()
+        barlow_fn = BarlowTwinsLoss()
+        vicreg_fn = VICRegLoss()
         ntp_loss_fn = CausalNextTokenLoss()
         dec_kl_fn = DECKLRegLoss()
 
@@ -144,17 +145,21 @@ class ParadigmTrainingOrchestrator:
                 with autocast_ctx:
                     outputs = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
 
-                    # Compute paradigm specific loss based on stream strategy
+                    # Compute unified self-supervised pretraining loss based on stream strategy
                     paradigm = self.config.training.stream_paradigms[stream_id]
-                    if paradigm == "supervised":
-                        loss = ce_loss_fn(outputs["logits"], targets)
-                    elif paradigm == "self_supervised":
-                        # Combine InfoNCE contrastive loss and Causal Next-Token Prediction loss
-                        loss_contrastive = infonce_fn(outputs["z_proj"], outputs["z_proj"])
-                        loss_ntp = ntp_loss_fn(outputs["ntp_logits"], x_txt)
-                        loss = loss_contrastive + loss_ntp
-                    else: # unsupervised DEC
+
+                    if paradigm in ["self_supervised_ntp", "self_supervised"]:
+                        loss = ntp_loss_fn(outputs["ntp_logits"], x_txt) + infonce_fn(outputs["z_proj"], outputs["z_proj"])
+                    elif paradigm == "self_supervised_barlow":
+                        loss = barlow_fn(outputs["z_proj"], outputs["z_proj"]) + ntp_loss_fn(outputs["ntp_logits"], x_txt)
+                    elif paradigm == "self_supervised_vicreg":
+                        loss = vicreg_fn(outputs["z_proj"], outputs["z_proj"]) + torch.mean((outputs["x_recon"] - outputs["z_bar"].unsqueeze(1)) ** 2)
+                    elif paradigm == "self_supervised_mae":
+                        loss = torch.mean((outputs["x_recon"] - outputs["z_bar"].unsqueeze(1)) ** 2)
+                    elif paradigm in ["self_supervised_dec", "unsupervised"]:
                         loss = dec_kl_fn(outputs["q_dist"])
+                    else: # self_supervised_omni (Unified Multi-Task SSL)
+                        loss = ntp_loss_fn(outputs["ntp_logits"], x_txt) + infonce_fn(outputs["z_proj"], outputs["z_proj"]) + torch.mean((outputs["x_recon"] - outputs["z_bar"].unsqueeze(1)) ** 2)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -189,7 +194,8 @@ class ParadigmTrainingOrchestrator:
         all_targets = []
         all_embeds = []
 
-        ce_loss_fn = CrossEntropyParadigmLoss()
+        infonce_fn = InfoNCELoss()
+        ntp_loss_fn = CausalNextTokenLoss()
 
         with torch.no_grad():
             for batch in val_dataloader:
@@ -201,7 +207,7 @@ class ParadigmTrainingOrchestrator:
                 targets = batch["label"].to(device)
 
                 outputs = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
-                loss = ce_loss_fn(outputs["logits"], targets)
+                loss = ntp_loss_fn(outputs["ntp_logits"], x_txt) + infonce_fn(outputs["z_proj"], outputs["z_proj"])
 
                 total_loss += loss.item()
                 all_preds.append(outputs["logits"].cpu().numpy())
@@ -233,7 +239,7 @@ class ParadigmTrainingOrchestrator:
             val_ds, batch_size=self.config.data.batch_size, shuffle=False, collate_fn=MultimodalPyTorchDataset.collate_fn
         )
 
-        print("[Orchestrator] Initializing 6 independent CUDA streams and single nested matrix decoder MultimodalNFMNet models...", flush=True)
+        print("[Orchestrator] Initializing 6 independent CUDA streams for UNIFIED SELF-SUPERVISED OMNI-PRETRAINING...", flush=True)
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 
@@ -248,7 +254,7 @@ class ParadigmTrainingOrchestrator:
         total_streams = self.config.training.num_streams
         num_epochs_budget = self.config.training.num_epochs
 
-        print(f"[Orchestrator] Starting 6-Stream 5-Modality Pretraining Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
+        print(f"[Orchestrator] Starting 6-Stream 5-Modality Unified Self-Supervised Omni-Pretraining Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
 
         for stream_id in range(total_streams):
             model = models[stream_id]
@@ -325,13 +331,13 @@ class ParadigmTrainingOrchestrator:
                 print(
                     f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
                     f"Epoch {epoch:03d}/{target_epochs:03d} | "
-                    f"Loss: {losses_dict.get('ce', 0.0):.4f} | "
-                    f"Acc: {current_acc:.4f} | "
+                    f"SSL Loss: {losses_dict.get('ce', 0.0):.4f} | "
                     f"PPL: {val_metrics.get('ppl', 1.0):.2f} | "
+                    f"Silhouette: {val_metrics.get('silhouette', 0.0):.4f} | "
                     f"Consolidated Drive Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
                     flush=True
                 )
 
         self.stream_mgr.synchronize_all()
         session_logger.log_session_end(session_stats)
-        print("[Orchestrator] Multi-Stream 5-Modality Pretraining Complete! Consolidated Drive weights saved.", flush=True)
+        print("[Orchestrator] Multi-Stream 5-Modality Unified Self-Supervised Omni-Pretraining Complete! Consolidated Drive weights saved.", flush=True)

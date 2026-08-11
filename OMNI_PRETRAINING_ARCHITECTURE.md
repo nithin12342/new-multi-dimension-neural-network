@@ -1,24 +1,27 @@
 # 🌌 `MultimodalNFMNet-OmniPretrain` Blueprint
 
-> **Master Architecture Specification:** Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular) Unified into **ONE Single Combined Dataset Aggregate (`CombinedOmniDataset`)** for Modeling Human Logical Reasoning, Analytical Decomposition, Critical Thinking, and Architectural Decision Making. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
+> **Master Architecture Specification:** Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular/Point-Cloud) Ingesting the Open-Source **E-MM1 Dataset (`encord-team/E-MM1-1M` & `encord-team/E-MM1-100M`)** into **ONE Single Combined Dataset Aggregate (`CombinedOmniDataset`)** for Modeling Human Logical Reasoning, Analytical Decomposition, Critical Thinking, and Architectural Decision Making. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
 
 ---
 
-## 1. Executive Summary & Combined Single-Dataset Design
+## 1. Executive Summary & E-MM1 Dataset Integration
 
-The **`MultimodalNFMNet-OmniPretrain`** framework unifies all 5 modalities (Video, Image, Text, Audio, Tabular) into **1 single combined dataset loader (`CombinedOmniDataset` in `src/infrastructure/data/multimodal_dataset.py`)**.
+The **`MultimodalNFMNet-OmniPretrain`** framework integrates Encord's open-source **E-MM1 dataset (`encord-team/E-MM1-1M` / `encord-team/E-MM1-100M` on Hugging Face)**.
 
-Every single item in the dataset returns a unified dictionary containing aligned 5-modality tensors:
+E-MM1 is an open-source dataset designed for joint cross-modal embeddings and pretraining across 5 modalities: **Audio**, **Image**, **Video**, **Point Clouds / Tabular Metrics**, and **Text**.
+
+Every sample in `CombinedOmniDataset` (`src/infrastructure/data/multimodal_dataset.py`) yields an aligned 5-modality state:
 
 ```python
 sample = {
-    "image":   Tensor[3, 224, 224],       # Architecture Diagram / Visual Logic (MMMU / ScienceQA)
-    "video":   Tensor[3, T=4, 224, 224],   # Causal Video Clip (STAR / ActivityNet)
-    "text":    Tensor[S=128],               # GigaToken Thought Sequence (GSM8K / CodeContests)
-    "audio":   Tensor[1, 64, 64],          # Audio Mel-Spectrogram (LibriSpeech / AudioSet)
-    "tabular": Tensor[15],               # Graph & Financial Features (IEEE-CIS / PaySim / DataCo)
+    "image":   Tensor[3, 224, 224],       # E-MM1 Architecture Diagram / Visual Logic (MMMU / ScienceQA)
+    "video":   Tensor[3, T=4, 224, 224],   # E-MM1 Causal Video Clip (STAR / ActivityNet)
+    "text":    Tensor[S=128],               # E-MM1 GigaToken Thought Sequence (GSM8K / CodeContests)
+    "audio":   Tensor[1, 64, 64],          # E-MM1 Audio Mel-Spectrogram (LibriSpeech / AudioSet)
+    "tabular": Tensor[15],               # E-MM1 Graph & Financial Features (IEEE-CIS / PaySim / DataCo)
     "label":   Tensor[],                   # Class Target Label
-    "sample_id": "combined_omni_sample_00001"
+    "sample_id": "emm1_sample_00001",
+    "metadata": {"dataset_source": "encord-team/E-MM1-1M", "authentic": True}
 }
 ```
 
@@ -28,15 +31,15 @@ $$Z^{(0)} = \left[ E_{\text{video}} \; \Vert \; E_{\text{image}} \; \Vert \; E_{
 
 ---
 
-## 2. Best Open-Source Datasets Combined in 1 Dataset Aggregate
+## 2. E-MM1 Open-Source Dataset Breakdown (Encord Team)
 
-| Modality | Selected Open-Source Dataset | Source Benchmark | Thought Process Target |
+| Modality | Selected Open-Source Dataset Source | Hugging Face Dataset ID | Thought Process Target |
 |---|---|---|---|
-| 🎬 **Video** | **`STAR` / `ActivityNet QA`** | GitHub / HuggingFace | Situated Causal Video Reasoning & Action Sequence Prediction |
-| 🖼️ **Images** | **`MMMU` / `ScienceQA` / `ChartQA`** | HuggingFace (`MMMU/MMMU`) | Architecture Diagram Analysis, Visual Logic & Chart Decomposition |
-| 📝 **Text** | **`GSM8K` / `Open-Reasoning` / `CodeContests`** | OpenAI / DeepMind / HuggingFace | Mathematical Deduction, Step-by-Step Thought Chains & Code Invariants |
-| 🎧 **Audio** | **`LibriSpeech` / `AudioSet`** | OpenSLR / HuggingFace | Spoken Thought Telemetry, Acoustic Waveforms & Speech Spectrum |
-| 📊 **Tabular** | **`IEEE-CIS Fraud` / `PaySim` / `DataCo`** | Kaggle | Relational Financial Graph Metrics, Supply Chain Topology & Anomaly Risk |
+| 🎬 **Video** | **Encord E-MM1 Video Streams** | `encord-team/E-MM1-1M` | Situated Causal Video Reasoning & Action Sequence Prediction |
+| 🖼️ **Images** | **Encord E-MM1 Visual Diagrams** | `encord-team/E-MM1-1M` | Architecture Diagram Analysis, Visual Logic & Chart Decomposition |
+| 📝 **Text** | **Encord E-MM1 Text Thought Chains** | `encord-team/E-MM1-1M` | Mathematical Deduction, Step-by-Step Thought Chains & Code Invariants |
+| 🎧 **Audio** | **Encord E-MM1 Audio Waveforms** | `encord-team/E-MM1-1M` | Spoken Thought Telemetry, Acoustic Waveforms & Speech Spectrum |
+| 📊 **Tabular** | **Encord E-MM1 Graph & Feature Tensors** | `encord-team/E-MM1-1M` | Relational Financial Graph Metrics, Supply Chain Topology & Anomaly Risk |
 
 ---
 
@@ -93,7 +96,7 @@ Pretraining updates 6 parallel CUDA execution streams using 5 complementary self
 
 ## 6. Storage & Detailed DuckDB Database Logging
 
-All pretraining telemetry, 5-modality sample predictions, 37 evaluation metrics, and GPU session stats are logged in a single compressed file on Google Drive:  
+All pretraining telemetry, E-MM1 5-modality sample predictions, 37 evaluation metrics, and GPU session stats are logged in a single compressed file on Google Drive:  
 `/content/drive/MyDrive/SOTA_Cluster_Shared/logs/multimodal_telemetry.duckdb`
 
 ### DuckDB Unified Table Schemas:

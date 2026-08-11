@@ -83,12 +83,16 @@
   spec_id: SPEC-018
 
 - id: REQ-019
-  text: "5-Modality Pretraining Pipeline: Video (STAR/ActivityNet), Image (MMMU/ScienceQA), Text (GSM8K/Open-Reasoning), Audio (LibriSpeech/AudioSet), Tabular (IEEE-CIS/PaySim)"
+  text: "5-Modality Pretraining Pipeline: Video, Image, Text, Audio, Tabular/Point-Cloud via Encord E-MM1 dataset (encord-team/E-MM1-1M)"
   spec_id: SPEC-019
 
 - id: REQ-020
   text: "GigaTokenizer Engine: High-throughput zero-copy SIMD tokenization concept inspired by Stanford GigaToken (24 GB/sec throughput) via Hash-LRU caching and byte-level mapping"
   spec_id: SPEC-020
+
+- id: REQ-021
+  text: "STRICT LOCAL EXECUTION RULE: Never execute pretraining runs on local developer PC; training execution is strictly restricted to Google Colab cloud environment to prevent local PC crashes"
+  spec_id: SPEC-021
 
 ---
 
@@ -105,17 +109,13 @@
   - **ModalityTokenizers & GigaTokenizerEngine**
     - invariant: "Projects 5 modalities (Video, Image, Text, Audio, Tabular) into unified sequence D=256 using GigaTokenizer zero-copy SIMD lookup"
     - entities: [GigaTokenizerEngine, VisionPatchTokenizer, VideoSpatiotemporalTokenizer, TextEmbeddingTokenizer, AudioSpectrogramTokenizer, TabularGraphTokenizer, OmniTokenFusion]
-    - value_objects: [PatchSize(16), EmbeddingDim(256), VocabSize(30522)]
-  - **ConformalRiemannianChart**
-    - invariant: "Poincaré ball constraint ‖x‖ < 1 enforced; conformal scale λ_x = 2/(1−‖x‖²) always positive"
-    - entities: [PoincareBall, MobiusAddition, GeodesicDistance]
-  - **ParadigmHeads**
-    - invariant: "Each head receives sequence/pooled representations and produces paradigm-specific output (including NextTokenPredictionHead)"
-    - entities: [SSLProjectionHead, MaskedReconstructionHead, NextTokenPredictionHead, SupervisedClassificationHead, SupervisedRegressionHead, DECClusteringHead]
+  - **Tri-Aggregate Architecture**
+    - invariant: "MultimodalNFMNet is composed of CombinedOmniEncoder, FunctionalCoreModel, and SingleNestedMatrixDecoder"
+    - entities: [CombinedOmniEncoder, FunctionalCoreModel, SingleNestedMatrixDecoder]
 
 ---
 
-## 3. Implementation Status Matrix (19 Modular DIP Nodes)
+## 3. Implementation Status Matrix (23 Modular DIP Nodes)
 
 | File ID | Folder Path | Owning Aggregate | Single Responsibility (<=7 Words) | Implementation Status |
 |---|---|---|---|---|
@@ -128,7 +128,7 @@
 | **FILE-007** | `src/domain/data/dataset_interface.py` | DatasetRegistry | define abstract dataset loader and preprocessing interfaces | ✅ Implemented & Tested |
 | **FILE-008** | `src/domain/loss/loss_functions.py` | LossFunctions | compute contrastive ntp classification and dec clustering losses | ✅ Implemented & Tested |
 | **FILE-009** | `src/infrastructure/storage/drive_manager.py` | DriveManager | mount google drive and resolve persistent directories | ✅ Implemented & Tested |
-| **FILE-010** | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load 5 modality authentic dataset batches | ✅ Implemented & Tested |
+| **FILE-010** | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load e-mm1 5 modality authentic dataset batches | ✅ Implemented & Tested |
 | **FILE-011** | `src/infrastructure/metrics/metric_computer.py` | MetricComputer | compute 37 classification regression clustering statistical metrics | ✅ Implemented & Tested |
 | **FILE-012** | `src/infrastructure/streams/stream_manager.py` | StreamManager | isolate 6 cuda execution streams and optimizers | ✅ Implemented & Tested |
 | **FILE-013** | `src/infrastructure/checkpoint/serializer.py` | CheckpointSerializer | serialize checkpoints using fp16 safetensors file format | ✅ Implemented & Tested |
@@ -138,30 +138,7 @@
 | **FILE-017** | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute 5 modality epoch iterations across paradigm streams | ✅ Implemented & Tested |
 | **FILE-018** | `src/application/fault_tolerance/recovery_manager.py` | RecoveryManager | catch runtime failures and trigger emergency recovery | ✅ Implemented & Tested |
 | **FILE-019** | `src/interfaces/cli/main.py` | MainRunner | sequence end to end colab training pipeline | ✅ Implemented & Tested |
-
----
-
-## 4. Traceability ID Chain
-
-```
-REQ-001 -> SPEC-001 -> SOT-001 (ModelArchitecture) -> FILE-002, FILE-003, FILE-004, FILE-005
-REQ-002 -> SPEC-002 -> SOT-001 & SOT-003           -> FILE-006, FILE-008
-REQ-003 -> SPEC-003 -> SOT-002 (DataLoading)       -> FILE-007, FILE-010
-REQ-004 -> SPEC-004 -> SOT-004 (TrainingOrchestrator) -> FILE-012
-REQ-005 -> SPEC-005 -> SOT-005 (CheckpointManager) -> FILE-013 (.safetensors)
-REQ-006 -> SPEC-006 -> SOT-005 (CheckpointManager) -> FILE-014
-REQ-007 -> SPEC-007 -> SOT-006 (GoogleDriveStorage)-> FILE-009
-REQ-008 -> SPEC-008 -> SOT-003 (LossComputation)   -> FILE-011
-REQ-009 -> SPEC-009 -> SOT-007 (Logging)           -> FILE-016 (multimodal_telemetry.duckdb)
-REQ-010 -> SPEC-010 -> SOT-007 (Logging)           -> FILE-015 (multimodal_telemetry.duckdb)
-REQ-011 -> SPEC-011 -> SOT-010 & SOT-005           -> FILE-019, FILE-013
-REQ-012 -> SPEC-012 -> SOT-008 (FaultTolerance)    -> FILE-018
-REQ-013 -> SPEC-013 -> SOT-009 (Configuration)     -> FILE-001
-REQ-014 -> SPEC-014 -> SOT-006 (GoogleDriveStorage)-> FILE-009
-REQ-015 -> SPEC-015 -> SOT-004 (TrainingOrchestrator) -> FILE-012, FILE-017
-REQ-016 -> SPEC-016 -> SOT-002 (DataLoading)       -> FILE-010 (Rule 12 Authentic Data)
-REQ-017 -> SPEC-017 -> SOT-001 & SOT-003           -> FILE-006, FILE-008, FILE-017 (NTP Thought Sequences)
-REQ-018 -> SPEC-018 -> SOT-007 (Logging)           -> FILE-015, FILE-016 (Single DuckDB Consolidation)
-REQ-019 -> SPEC-019 -> SOT-002 (DataLoading)       -> FILE-010 (5-Modality Pretraining)
-REQ-020 -> SPEC-020 -> SOT-001 (ModelArchitecture) -> FILE-004 (GigaTokenizer Engine)
-```
+| **FILE-020** | `src/domain/model/encoder.py` | CombinedOmniEncoder | encode 5 modalities using chebyshev matrix reduction | ✅ Implemented & Tested |
+| **FILE-021** | `src/domain/model/core_model.py` | FunctionalCoreModel | execute chebyshev matrix contractions and poincare chart | ✅ Implemented & Tested |
+| **FILE-022** | `src/domain/model/decoder.py` | SingleNestedMatrixDecoder | project core representations into all outputs using single decoder | ✅ Implemented & Tested |
+| **FILE-023** | `train_omni.py` | MainRunner | entrypoint script for google colab execution | ✅ Implemented & Tested |

@@ -24,7 +24,7 @@ class MultimodalNFMNetPipelineCLI:
     def run_full_pipeline(self) -> None:
         """Sequence end-to-end training framework execution with fault tolerance."""
         print("==========================================================================")
-        print(" 🚀 Starting MultimodalNFMNet Robust Training Framework (Google Colab T4) ")
+        print(" STARTING MULTIMODAL NFMNET 5-MODALITY PRETRAINING PIPELINE (COLAB T4) ")
         print("==========================================================================")
 
         def _execute():

@@ -97,8 +97,10 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 
 ### 🔹 Session 15 & 16: Single Nested Matrix Decoder & Dimensionality Reduction across Encoder, Core, and Decoder
 - **User Request:** Is the core functionality of mapping higher dimensions into lower dimension using nested matrix used in encoder and decoder? Use a single decoder combining the functionality of the existing decoders.
-- **Solution Implemented:**
-  1. Updated `CombinedOmniEncoder` (`encoder.py`) to incorporate Order-2 Chebyshev Functional Nested Matrix Polynomial Contractions to map high-dimensional raw modal inputs into lower-dimensional sequence embeddings.
-  2. Maintained 2-stage Chebyshev nested matrix contractions and Poincaré hyperbolic chart mapping inside `FunctionalCoreModel` (`core_model.py`).
-  3. Created **`SingleNestedMatrixDecoder`** (`decoder.py`) — a **single unified decoder engine** combining all multi-task decoder head functionalities, backed by Chebyshev Nested Matrix Contractions to map lower-dimensional representations back into target output spaces (`ntp_logits`, `x_recon`, `z_proj`, `logits`, `reg_out`, `q_dist`).
-  4. Updated `MultimodalNFMNet` in `training_loop.py` to execute the single nested matrix decoder pipeline.
+- **Solution Implemented:** Updated `CombinedOmniEncoder` (`encoder.py`) and created `SingleNestedMatrixDecoder` (`decoder.py`) combining all multi-task decoder head functionalities with Order-2 Chebyshev Functional Nested Matrix Polynomial Contractions.
+
+---
+
+### 🔹 Session 17: Rule 13 — Strict Local Execution Boundary
+- **User Request:** Do not run training here it crashes computer add it to instruction training only in colab.
+- **Solution Implemented:** Formulated **Rule 13** in `.agents/rules/` and `SKELETON.md` (`REQ-021`). Local agent commands MUST NEVER execute training loops locally on the developer PC; training execution is strictly restricted to Google Colab GPU cloud environments. Local commands reserved strictly for code edits, dry-runs, and git syncing.

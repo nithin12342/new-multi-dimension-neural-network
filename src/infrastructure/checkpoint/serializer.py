@@ -2,7 +2,7 @@
 FILE-013 | FOLDER-009 | src/infrastructure/checkpoint/serializer.py
 Owning Aggregate: CheckpointSerializer
 Responsibility: serialize checkpoints using safetensors file format with 37 metric metadata
-Must Never: overwrite existing valid checkpoints without versioning
+Must Never: allow path separators in serialized checkpoint filenames
 """
 
 import os
@@ -96,12 +96,12 @@ class CheckpointSerializer:
         }
         torch.save(checkpoint, local_latest_path)
 
-        # 2. Export Consolidated FP16 Weights in .safetensors Format to Resolved Drive/Local Checkpoints Dir
+        # 2. Export Consolidated FP16 Weights in .safetensors Format to Resolved Checkpoints Dir
         resolved_checkpoints_dir = self.drive_mgr.resolve_path("checkpoints")
         drive_target_dir = os.path.join(resolved_checkpoints_dir, model_name)
         os.makedirs(drive_target_dir, exist_ok=True)
 
-        signature_name = self.metric_computer.format_serialized_signature(
+        raw_signature_name = self.metric_computer.format_serialized_signature(
             stream_id=stream_id + 1,
             timestamp=timestamp,
             epoch=epoch,
@@ -109,8 +109,9 @@ class CheckpointSerializer:
             dataset_version=system_config.data.dataset_name,
             metrics=metrics
         )
-        safetensors_filename = signature_name.replace(".pt", ".safetensors")
-        drive_filepath = os.path.join(drive_target_dir, safetensors_filename)
+        # Double-guard filename against slashes or path separators
+        safe_filename = os.path.basename(raw_signature_name).replace(".pt", ".safetensors").replace("/", "_").replace("\\", "_")
+        drive_filepath = os.path.join(drive_target_dir, safe_filename)
 
         # Compress state dict to FP16 half precision
         fp16_state_dict = {k: v.half() if torch.is_floating_point(v) else v for k, v in model.state_dict().items()}

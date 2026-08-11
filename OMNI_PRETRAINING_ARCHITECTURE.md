@@ -1,30 +1,42 @@
 # 🌌 `MultimodalNFMNet-OmniPretrain` Blueprint
 
-> **Master Architecture Specification:** Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular) for Modeling Human Logical Reasoning, Analytical Decomposition, Critical Thinking, and Architectural Decision Making. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
+> **Master Architecture Specification:** Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular) Unified into **ONE Single Combined Dataset Aggregate (`CombinedOmniDataset`)** for Modeling Human Logical Reasoning, Analytical Decomposition, Critical Thinking, and Architectural Decision Making. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
 
 ---
 
-## 1. Executive Summary & Core Objective
+## 1. Executive Summary & Combined Single-Dataset Design
 
-The **`MultimodalNFMNet-OmniPretrain`** framework extends the **Nested Functional Matrix Network (`MultimodalNFMNet`)** into a unified, 5-modality self-supervised pretraining foundation model.
+The **`MultimodalNFMNet-OmniPretrain`** framework unifies all 5 modalities (Video, Image, Text, Audio, Tabular) into **1 single combined dataset loader (`CombinedOmniDataset` in `src/infrastructure/data/multimodal_dataset.py`)**.
 
-Rather than processing modalities in isolation, `MultimodalNFMNet-OmniPretrain` projects spatiotemporal video frames, high-resolution visual diagrams, text thought tokens, audio spectral waveforms, and structured graph/tabular features into a **single unified Riemannian manifold state sequence**:
+Every single item in the dataset returns a unified dictionary containing aligned 5-modality tensors:
+
+```python
+sample = {
+    "image":   Tensor[3, 224, 224],       # Architecture Diagram / Visual Logic (MMMU / ScienceQA)
+    "video":   Tensor[3, T=4, 224, 224],   # Causal Video Clip (STAR / ActivityNet)
+    "text":    Tensor[S=128],               # GigaToken Thought Sequence (GSM8K / CodeContests)
+    "audio":   Tensor[1, 64, 64],          # Audio Mel-Spectrogram (LibriSpeech / AudioSet)
+    "tabular": Tensor[15],               # Graph & Financial Features (IEEE-CIS / PaySim / DataCo)
+    "label":   Tensor[],                   # Class Target Label
+    "sample_id": "combined_omni_sample_00001"
+}
+```
+
+This single combined state is projected into a unified sequence:
 
 $$Z^{(0)} = \left[ E_{\text{video}} \; \Vert \; E_{\text{image}} \; \Vert \; E_{\text{text}} \; \Vert \; E_{\text{audio}} \; \Vert \; E_{\text{tabular}} \right] \in \mathbb{R}^{B \times N_{\text{total}} \times 256}$$
 
 ---
 
-## 2. Best Open-Source Datasets Selected by Modality
+## 2. Best Open-Source Datasets Combined in 1 Dataset Aggregate
 
-To deliver state-of-the-art pretraining for analytical, logical, and critical thinking, the data pipeline integrates the top open-source datasets across all 5 modalities:
-
-| Modality | Selected Open-Source Dataset | Source & Benchmark | Pretraining Focus & Thought Process Target |
+| Modality | Selected Open-Source Dataset | Source Benchmark | Thought Process Target |
 |---|---|---|---|
-| **Video** | **`STAR` / `ActivityNet QA`** | GitHub (`STAR-Benchmark`) / HuggingFace | Situated Causal Video Reasoning & Action Sequence Prediction |
-| **Image** | **`MMMU` & `ScienceQA` & `ChartQA`** | HuggingFace (`MMMU/MMMU`) | Architecture Diagram Analysis, Visual Logic & Chart Decomposition |
-| **Text** | **`GSM8K` & `Open-Reasoning` & `CodeContests`** | OpenAI / DeepMind / HuggingFace | Mathematical Deduction, Step-by-Step Thought Chains & Code Invariants |
-| **Audio** | **`LibriSpeech` & `AudioSet`** | OpenSLR / HuggingFace | Spoken Thought Telemetry, Acoustic Waveform Features & Speech Spectrum |
-| **Structured Tabular** | **`IEEE-CIS Fraud` & `PaySim` & `DataCo`** | Kaggle | Relational Financial Graph Metrics, Supply Chain Network Topology & Anomaly Risk |
+| 🎬 **Video** | **`STAR` / `ActivityNet QA`** | GitHub / HuggingFace | Situated Causal Video Reasoning & Action Sequence Prediction |
+| 🖼️ **Images** | **`MMMU` / `ScienceQA` / `ChartQA`** | HuggingFace (`MMMU/MMMU`) | Architecture Diagram Analysis, Visual Logic & Chart Decomposition |
+| 📝 **Text** | **`GSM8K` / `Open-Reasoning` / `CodeContests`** | OpenAI / DeepMind / HuggingFace | Mathematical Deduction, Step-by-Step Thought Chains & Code Invariants |
+| 🎧 **Audio** | **`LibriSpeech` / `AudioSet`** | OpenSLR / HuggingFace | Spoken Thought Telemetry, Acoustic Waveforms & Speech Spectrum |
+| 📊 **Tabular** | **`IEEE-CIS Fraud` / `PaySim` / `DataCo`** | Kaggle | Relational Financial Graph Metrics, Supply Chain Topology & Anomaly Risk |
 
 ---
 

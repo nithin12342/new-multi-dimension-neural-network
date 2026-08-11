@@ -16,17 +16,19 @@ import safetensors.torch # type: ignore
 from safetensors import safe_open # type: ignore
 
 from src.domain.config.config_entities import PathConfig, SystemConfig
+from src.infrastructure.storage.drive_manager import GoogleDriveManager
 from src.infrastructure.metrics.metric_computer import ThirtySevenMetricComputer
 
 class CheckpointSerializer:
     """
     Consolidated SafeTensors Checkpoint Manager.
     Saves weight checkpoints directly in HuggingFace `.safetensors` format with JSON metric headers.
-    Maintains ONLY ONE consolidated FP16 `.safetensors` checkpoint per stream on Google Drive.
+    Maintains ONLY ONE consolidated FP16 `.safetensors` checkpoint per stream on Google Drive or non-blocking storage.
     """
 
     def __init__(self, path_config: PathConfig = PathConfig()):
         self.path_config = path_config
+        self.drive_mgr = GoogleDriveManager(path_config)
         self.metric_computer = ThirtySevenMetricComputer()
         self.local_dir = os.path.join(os.path.expanduser("~"), ".cache", "local_checkpoints")
         os.makedirs(self.local_dir, exist_ok=True)
@@ -34,8 +36,10 @@ class CheckpointSerializer:
     def create_dummy_weights(self, models: List[torch.nn.Module], system_config: SystemConfig) -> List[str]:
         """Create initial lightweight dummy `.safetensors` weight files in local runtime storage."""
         saved_paths = []
+        dummy_base_dir = self.drive_mgr.resolve_path("dummy_weights")
+
         for i, model in enumerate(models, 1):
-            local_target_dir = os.path.join(self.local_dir, f"model_{i:02d}")
+            local_target_dir = os.path.join(dummy_base_dir, f"model_{i:02d}")
             os.makedirs(local_target_dir, exist_ok=True)
             dummy_path = os.path.join(local_target_dir, "dummy_v1.safetensors")
 
@@ -66,13 +70,13 @@ class CheckpointSerializer:
         is_best: bool = False
     ) -> str:
         """
-        Save lightweight FP16 consolidated checkpoint in `.safetensors` format to Google Drive.
+        Save lightweight FP16 consolidated checkpoint in `.safetensors` format to resolved storage.
         Purges older checkpoint files in the target folder so ONLY 1 single `.safetensors` file exists per stream.
         """
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         model_name = f"model_{stream_id + 1:02d}"
 
-        # 1. Save Full Checkpoint to Local Storage
+        # 1. Save Full Checkpoint to Local Cache Storage
         local_target_dir = os.path.join(self.local_dir, model_name)
         os.makedirs(local_target_dir, exist_ok=True)
         local_latest_path = os.path.join(local_target_dir, "latest_local.pt")
@@ -92,8 +96,9 @@ class CheckpointSerializer:
         }
         torch.save(checkpoint, local_latest_path)
 
-        # 2. Export Consolidated FP16 Weights in .safetensors Format to Google Drive
-        drive_target_dir = os.path.join(self.path_config.checkpoints_dir, model_name)
+        # 2. Export Consolidated FP16 Weights in .safetensors Format to Resolved Drive/Local Checkpoints Dir
+        resolved_checkpoints_dir = self.drive_mgr.resolve_path("checkpoints")
+        drive_target_dir = os.path.join(resolved_checkpoints_dir, model_name)
         os.makedirs(drive_target_dir, exist_ok=True)
 
         signature_name = self.metric_computer.format_serialized_signature(
@@ -122,7 +127,7 @@ class CheckpointSerializer:
             "is_best": "true" if is_best else "false"
         }
 
-        # Purge ALL previous checkpoint files in this stream's Google Drive folder
+        # Purge ALL previous checkpoint files in this stream's target folder
         for old_file in glob.glob(os.path.join(drive_target_dir, "*")):
             try:
                 os.remove(old_file)

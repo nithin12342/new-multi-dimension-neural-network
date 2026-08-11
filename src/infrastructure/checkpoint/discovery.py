@@ -11,18 +11,24 @@ import torch
 import safetensors.torch # type: ignore
 from safetensors import safe_open # type: ignore
 
+from src.infrastructure.storage.drive_manager import GoogleDriveManager
+from src.domain.config.config_entities import PathConfig
+
 class CheckpointDiscoveryScanner:
     """
     Automatic SafeTensors Checkpoint Discovery Engine.
-    Recursively scans Google Drive for `.safetensors` weight files, sorts by modification time,
+    Recursively scans storage for `.safetensors` weight files, sorts by modification time,
     validates file integrity, and returns the newest valid checkpoint path for seamless resume.
     """
 
-    def __init__(self, checkpoints_dir: str):
-        self.checkpoints_dir = checkpoints_dir
+    def __init__(self, checkpoints_dir: str = None, path_config: PathConfig = PathConfig()):
+        if checkpoints_dir is not None:
+            self.checkpoints_dir = checkpoints_dir
+        else:
+            self.checkpoints_dir = GoogleDriveManager(path_config).resolve_path("checkpoints")
 
     def scan_drive_for_checkpoints(self, model_id: int) -> List[str]:
-        """Recursively scan Google Drive model sub-folder for all existing `.safetensors` checkpoint files."""
+        """Recursively scan model sub-folder for all existing `.safetensors` checkpoint files."""
         model_dir = os.path.join(self.checkpoints_dir, f"model_{model_id:02d}")
         if not os.path.exists(model_dir):
             return []

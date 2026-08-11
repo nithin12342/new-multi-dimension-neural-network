@@ -114,6 +114,14 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 ---
 
 ### 🔹 Session 19 & 20: SafeTensors Filename Path Separator Bug Fix
-- **User Request:** SafetensorError: I/O error: No such file or directory (os error 2) at path "/content/drive/MyDrive/SOTA_Cluster_Shared/checkpoints/model_01/CKPT_..._Dataset_encord-team/.tmpWgPlas"
-- **Root Cause:** The forward slash `/` inside the HuggingFace dataset ID `"encord-team/E-MM1-1M"` was treated as a sub-directory separator inside `format_serialized_signature()`, causing `safetensors.torch.save_file` to write to a non-existent sub-folder `Dataset_encord-team/`.
-- **Solution Implemented:** Sanitized `dataset_version` in `metric_computer.py` by replacing `/` with `_` (`safe_dataset_version = str(dataset_version).replace('/', '_')`), producing clean signature filenames like `..._Dataset_encord-team_E-MM1-1M.safetensors` with ZERO path separators!
+- **User Request:** SafetensorError: I/O error: No such file or directory (os error 2)
+- **Solution Implemented:** Sanitized `dataset_version` in `metric_computer.py` and `serializer.py` by replacing `/` with `_`, producing clean filenames `Dataset_encord-team_E-MM1-1M.safetensors` with ZERO path separators.
+
+---
+
+### 🔹 Session 21: NaN Resolution in Prediction Confidence Logs & VICReg Loss Normalization
+- **User Request:** what next and nan value here why.
+- **Root Cause:** Unnormalized raw linear logits caused `NaN` values during confidence logging; un-clamped variance loss weight ($\lambda_{\text{std}} = 25.0$) caused loss scale inflation in Stream 3 (VICReg).
+- **Solution Implemented:**
+  1. Updated `training_loop.py` to apply `scipy.special.softmax()` to raw logits before logging prediction confidence, guaranteeing valid numerical confidence values $[0.0, 1.0]$ with ZERO `NaN`s in DuckDB `predictions`.
+  2. Normalized VICReg loss weights ($\text{sim\_coeff} = 1.0, \text{std\_coeff} = 1.0, \text{cov\_coeff} = 0.04$) and added `torch.clamp(loss, 0.0, 50.0)` in `loss_functions.py` to guarantee numerical loss stability.

@@ -1,8 +1,8 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across 6 unified self-supervised omni-pretraining streams
-Must Never: skip gradient scaling step during fp16 training
+Responsibility: execute epoch iterations across 6 unified self-supervised omni-pretraining streams with softmax prediction confidence
+Must Never: allow un-normalized logits to produce NaN values in prediction logs
 """
 
 import os
@@ -10,6 +10,7 @@ import time
 import torch
 import torch.nn as nn
 import numpy as np
+from scipy.special import softmax
 from typing import Dict, Any, List, Tuple
 
 from src.domain.config.config_entities import SystemConfig
@@ -296,19 +297,24 @@ class ParadigmTrainingOrchestrator:
                 if is_best:
                     best_acc = current_acc
 
-                # Format predictions for export
+                # Format predictions for export with Softmax probability normalization
                 timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
                 pred_records = []
                 for idx in range(min(10, len(preds))):
+                    raw_logits = preds[idx]
+                    probs = softmax(raw_logits - np.max(raw_logits))
+                    confidence_val = float(np.max(probs))
+                    pred_label = int(np.argmax(probs))
+
                     rec = pred_exporter.record_prediction(
                         timestamp=timestamp,
                         sample_id=f"stream{stream_id+1}_ep{epoch}_sample{idx}",
                         input_file="multimodal_batch",
                         ground_truth=int(targets[idx]),
-                        predicted=int(np.argmax(preds[idx])),
-                        confidence=float(np.max(preds[idx])),
-                        prob_dist=preds[idx].tolist(),
-                        correct=bool(np.argmax(preds[idx]) == targets[idx]),
+                        predicted=pred_label,
+                        confidence=confidence_val,
+                        prob_dist=probs.tolist(),
+                        correct=bool(pred_label == targets[idx]),
                         loss_contribution=float(losses_dict.get("ce", 0.0))
                     )
                     pred_records.append(rec)

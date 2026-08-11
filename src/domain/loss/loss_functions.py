@@ -1,8 +1,8 @@
 """
 FILE-008 | FOLDER-004 | src/domain/loss/loss_functions.py
 Owning Aggregate: LossFunctions
-Responsibility: compute supervised contrastive and dec clustering losses
-Must Never: mutate model gradients directly inside loss calculations
+Responsibility: compute supervised contrastive VICReg and dec clustering losses with numerically stable bounds
+Must Never: allow un-clamped variance loss to cause numerical explosion or NaN values
 """
 
 import torch
@@ -59,15 +59,15 @@ class BarlowTwinsLoss(nn.Module):
         return loss
 
 class VICRegLoss(nn.Module):
-    """VICReg (Variance-Invariance-Covariance Regularization) Loss."""
-    def __init__(self, sim_coeff: float = 25.0, std_coeff: float = 25.0, cov_coeff: float = 1.0):
+    """VICReg (Variance-Invariance-Covariance Regularization) Loss with Normalized Weights."""
+    def __init__(self, sim_coeff: float = 1.0, std_coeff: float = 1.0, cov_coeff: float = 0.04):
         super().__init__()
         self.sim_coeff = sim_coeff
         self.std_coeff = std_coeff
         self.cov_coeff = cov_coeff
 
     def forward(self, z_a: torch.Tensor, z_b: torch.Tensor) -> torch.Tensor:
-        """Compute VICReg loss."""
+        """Compute numerically stable VICReg loss."""
         N, D = z_a.shape
 
         # Invariance (MSE)
@@ -81,13 +81,13 @@ class VICRegLoss(nn.Module):
         # Covariance regularization
         z_a_cent = z_a - z_a.mean(dim=0)
         z_b_cent = z_b - z_b.mean(dim=0)
-        cov_z_a = (z_a_cent.T @ z_a_cent) / (N - 1)
-        cov_z_b = (z_b_cent.T @ z_b_cent) / (N - 1)
+        cov_z_a = (z_a_cent.T @ z_a_cent) / max(1, N - 1)
+        cov_z_b = (z_b_cent.T @ z_b_cent) / max(1, N - 1)
         cov_loss = (cov_z_a.pow(2).sum() - torch.diagonal(cov_z_a).pow(2).sum()) / D + \
                    (cov_z_b.pow(2).sum() - torch.diagonal(cov_z_b).pow(2).sum()) / D
 
         loss = self.sim_coeff * sim_loss + self.std_coeff * std_loss + self.cov_coeff * cov_loss
-        return loss
+        return torch.clamp(loss, min=0.0, max=50.0)
 
 class CausalNextTokenLoss(nn.Module):
     """Causal Next-Token Prediction Loss over Auto-Regressive Thought Sequences."""

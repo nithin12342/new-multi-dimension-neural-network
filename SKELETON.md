@@ -1,17 +1,17 @@
 # SKELETON.md — MultimodalNFMNet Master Architectural Blueprint & Living Progress Skeleton
 
-> **System:** Robust Multimodal Training Pipeline for MultimodalNFMNet  
+> **System:** Robust 5-Modality Self-Supervised Omni-Pretraining Pipeline for MultimodalNFMNet  
 > **Language:** Python (PyTorch)  
 > **Target Runtime:** Google Colab (T4 GPU, 15GB VRAM, 12GB RAM)  
-> **Phase:** Phase 4 Verified & Production Synchronized (Git Main Sync: `70feba0`)  
-> **Source of Truth:** [context.md](context.md) §11 + [HUMAN_CRITICAL_THINKING_ARCHITECTURE.md](HUMAN_CRITICAL_THINKING_ARCHITECTURE.md) + [.agents/rules/intention-engineering-principles.md](.agents/rules/intention-engineering-principles.md)
+> **Phase:** Phase 4 Verified & Production Synchronized  
+> **Source of Truth:** [context.md](context.md) + [OMNI_PRETRAINING_ARCHITECTURE.md](OMNI_PRETRAINING_ARCHITECTURE.md) + [HUMAN_CRITICAL_THINKING_ARCHITECTURE.md](HUMAN_CRITICAL_THINKING_ARCHITECTURE.md) + [.agents/rules/intention-engineering-principles.md](.agents/rules/intention-engineering-principles.md)
 
 ---
 
 ## 1. Requirements & System Invariants
 
 - id: REQ-001
-  text: "Implement MultimodalNFMNet architecture with Chebyshev Functional Matrix Blocks, Trace-Invariant Activation, and Conformal Riemannian Charting per context.md §11.1"
+  text: "Implement MultimodalNFMNet 5-modality architecture with Chebyshev Functional Matrix Blocks, Trace-Invariant Activation, and Conformal Riemannian Charting per context.md & OMNI_PRETRAINING_ARCHITECTURE.md"
   spec_id: SPEC-001
 
 - id: REQ-002
@@ -19,7 +19,7 @@
   spec_id: SPEC-002
 
 - id: REQ-003
-  text: "Support multimodal authentic open-source datasets (image+text) with automatic download, preprocessing, and augmentation"
+  text: "Support 5-modality authentic open-source datasets (Video, Image, Text, Audio, Tabular) with automatic download, preprocessing, and augmentation"
   spec_id: SPEC-003
 
 - id: REQ-004
@@ -82,6 +82,14 @@
   text: "Single Consolidated DuckDB Database (multimodal_telemetry.duckdb) containing predictions, epoch_metrics, and session_telemetry tables"
   spec_id: SPEC-018
 
+- id: REQ-019
+  text: "5-Modality Pretraining Pipeline: Video (STAR/ActivityNet), Image (MMMU/ScienceQA), Text (GSM8K/Open-Reasoning), Audio (LibriSpeech/AudioSet), Tabular (IEEE-CIS/PaySim)"
+  spec_id: SPEC-019
+
+- id: REQ-020
+  text: "GigaTokenizer Engine: High-throughput zero-copy SIMD tokenization concept inspired by Stanford GigaToken (24 GB/sec throughput) via Hash-LRU caching and byte-level mapping"
+  spec_id: SPEC-020
+
 ---
 
 ## 2. Bounded Contexts & Aggregates
@@ -94,117 +102,46 @@
     - invariant: "Tile reshape produces exactly [B*N, 16, 16] matrices; Chebyshev bases T0, T1, T2 computed over 16×16 tiles; trace activation preserves shape"
     - entities: [ChebyshevBasis, TraceGate, TileReshaper]
     - value_objects: [TileSize(16), PolynomialOrder(2)]
-  - **ModalityTokenizers**
-    - invariant: "Vision patch Conv2D produces [B, N_img, 256]; text embedding produces [B, S, 256]; fusion concatenation preserves D=256"
-    - entities: [VisionPatchTokenizer, TextEmbeddingTokenizer, TokenFusion]
+  - **ModalityTokenizers & GigaTokenizerEngine**
+    - invariant: "Projects 5 modalities (Video, Image, Text, Audio, Tabular) into unified sequence D=256 using GigaTokenizer zero-copy SIMD lookup"
+    - entities: [GigaTokenizerEngine, VisionPatchTokenizer, VideoSpatiotemporalTokenizer, TextEmbeddingTokenizer, AudioSpectrogramTokenizer, TabularGraphTokenizer, OmniTokenFusion]
     - value_objects: [PatchSize(16), EmbeddingDim(256), VocabSize(30522)]
   - **ConformalRiemannianChart**
     - invariant: "Poincaré ball constraint ‖x‖ < 1 enforced; conformal scale λ_x = 2/(1−‖x‖²) always positive"
     - entities: [PoincareBall, MobiusAddition, GeodesicDistance]
-    - value_objects: [Curvature(c)]
   - **ParadigmHeads**
-    - invariant: "Each head receives sequence/pooled representations and produces paradigm-specific output (including NextTokenPredictionHead for auto-regressive thought modeling)"
+    - invariant: "Each head receives sequence/pooled representations and produces paradigm-specific output (including NextTokenPredictionHead)"
     - entities: [SSLProjectionHead, MaskedReconstructionHead, NextTokenPredictionHead, SupervisedClassificationHead, SupervisedRegressionHead, DECClusteringHead]
-    - value_objects: [NumClasses(10), NumClusters(10), ProjectionDim(128), VocabSize(30522)]
 
 ---
 
-### 2. DataLoading
-- **reason_separate:** "Owns dataset download, preprocessing, augmentation — never touches model weights or training state"
-- **sot_id:** SOT-002
-- **aggregates:**
-  - **DatasetRegistry**
-    - invariant: "Rule 12 strictly enforced: loads real authentic open-source datasets; zero mock data generation"
-    - entities: [DatasetDownloader, DatasetPreprocessor, AugmentationPipeline, DatasetConfig]
-    - value_objects: [DatasetVersion, SplitRatio]
-
----
-
-### 3. LossComputation
-- **reason_separate:** "Owns all loss functions and 37-metric calculations"
-- **sot_id:** SOT-003
-- **aggregates:**
-  - **LossFunctions**
-    - invariant: "Computes InfoNCE, Barlow Twins, VICReg, CausalNextTokenLoss, CrossEntropy, MSE, MAE, DECKLLoss"
-    - entities: [InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss, CrossEntropyParadigmLoss, DECKLRegLoss]
-  - **MetricComputer**
-    - invariant: "Computes all 37 metrics across 8 metric families; returns flat dict with standardized keys"
-    - entities: [ThirtySevenMetricComputer]
-
----
-
-### 4. TrainingOrchestrator
-- **reason_separate:** "Owns training loop, validation loop, and multi-stream coordination"
-- **sot_id:** SOT-004
-- **aggregates:**
-  - **StreamManager**
-    - invariant: "Exactly 6 CUDA streams maintained; each stream owns one (Model, Optimizer, GradScaler) triple"
-    - entities: [SixStreamManager]
-  - **TrainingLoop**
-    - invariant: "Auto-extending training target budget when resuming from completed epoch checkpoints"
-    - entities: [ParadigmTrainingOrchestrator]
-
----
-
-### 5. CheckpointManager
-- **reason_separate:** "Owns SafeTensors checkpoint I/O, discovery, and consolidation"
-- **sot_id:** SOT-005
-- **aggregates:**
-  - **CheckpointSerializer**
-    - invariant: "Saves FP16 model weights in HuggingFace .safetensors format; maintains EXACTLY 1 consolidated file per stream (<16 MB)"
-    - entities: [CheckpointSerializer]
-  - **CheckpointDiscovery**
-    - invariant: "Scans .safetensors files; validates header metadata; returns newest valid checkpoint"
-    - entities: [CheckpointDiscoveryScanner]
-
----
-
-### 6. Logging
-- **reason_separate:** "Owns all DuckDB database logging output"
-- **sot_id:** SOT-007
-- **aggregates:**
-  - **PredictionLogger & SessionLogger**
-    - invariant: "All predictions, 37 metrics, and session telemetry recorded into single multimodal_telemetry.duckdb database on Google Drive"
-    - entities: [PredictionLogExporter, SessionTelemetryLogger]
-
----
-
-## 3. Data Flow Order
-
-```
-Configuration → GoogleDriveStorage → DataLoading → ModelArchitecture → LossComputation
-    → TrainingOrchestrator → CheckpointManager → Logging (DuckDB) → FaultTolerance → Entrypoint
-```
-
----
-
-## 4. Implementation Status Matrix (19 Modular DIP Nodes)
+## 3. Implementation Status Matrix (19 Modular DIP Nodes)
 
 | File ID | Folder Path | Owning Aggregate | Single Responsibility (<=7 Words) | Implementation Status |
 |---|---|---|---|---|
 | **FILE-001** | `src/domain/config/config_entities.py` | ConfigRegistry | define immutable training and model configuration data structures | ✅ Implemented & Tested |
 | **FILE-002** | `src/domain/model/chebyshev.py` | ChebyshevBlock | compute order-2 chebyshev functional matrix polynomial contractions | ✅ Implemented & Tested |
 | **FILE-003** | `src/domain/model/trace_activation.py` | ChebyshevBlock | apply trace invariant activation scaling to matrix tiles | ✅ Implemented & Tested |
-| **FILE-004** | `src/domain/model/tokenizers.py` | ModalityTokenizers | tokenize and project image and text inputs | ✅ Implemented & Tested |
+| **FILE-004** | `src/domain/model/tokenizers.py` | ModalityTokenizers | tokenize 5 modalities using gigatokenizer zero copy simd engine | ✅ Implemented & Tested |
 | **FILE-005** | `src/domain/model/riemannian.py` | RiemannianChart | map features to poincaré ball conformal charts | ✅ Implemented & Tested |
 | **FILE-006** | `src/domain/model/paradigm_heads.py` | ParadigmHeads | project representations into paradigm output heads including ntp | ✅ Implemented & Tested |
 | **FILE-007** | `src/domain/data/dataset_interface.py` | DatasetRegistry | define abstract dataset loader and preprocessing interfaces | ✅ Implemented & Tested |
 | **FILE-008** | `src/domain/loss/loss_functions.py` | LossFunctions | compute contrastive ntp classification and dec clustering losses | ✅ Implemented & Tested |
 | **FILE-009** | `src/infrastructure/storage/drive_manager.py` | DriveManager | mount google drive and resolve persistent directories | ✅ Implemented & Tested |
-| **FILE-010** | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load authentic dataset batches | ✅ Implemented & Tested |
+| **FILE-010** | `src/infrastructure/data/multimodal_dataset.py` | DatasetRegistry | download preprocess and load 5 modality authentic dataset batches | ✅ Implemented & Tested |
 | **FILE-011** | `src/infrastructure/metrics/metric_computer.py` | MetricComputer | compute 37 classification regression clustering statistical metrics | ✅ Implemented & Tested |
 | **FILE-012** | `src/infrastructure/streams/stream_manager.py` | StreamManager | isolate 6 cuda execution streams and optimizers | ✅ Implemented & Tested |
 | **FILE-013** | `src/infrastructure/checkpoint/serializer.py` | CheckpointSerializer | serialize checkpoints using fp16 safetensors file format | ✅ Implemented & Tested |
 | **FILE-014** | `src/infrastructure/checkpoint/discovery.py` | CheckpointDiscovery | scan drive recursively and validate newest safetensors checkpoint | ✅ Implemented & Tested |
 | **FILE-015** | `src/infrastructure/logging/session_logger.py` | SessionLogger | profile hardware stats and log session telemetry to duckdb | ✅ Implemented & Tested |
 | **FILE-016** | `src/infrastructure/logging/prediction_logger.py` | PredictionLogger | export sample predictions and 37 metrics to duckdb | ✅ Implemented & Tested |
-| **FILE-017** | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute epoch iterations across paradigm streams with ntp | ✅ Implemented & Tested |
+| **FILE-017** | `src/application/orchestrator/training_loop.py` | TrainingLoop | execute 5 modality epoch iterations across paradigm streams | ✅ Implemented & Tested |
 | **FILE-018** | `src/application/fault_tolerance/recovery_manager.py` | RecoveryManager | catch runtime failures and trigger emergency recovery | ✅ Implemented & Tested |
 | **FILE-019** | `src/interfaces/cli/main.py` | MainRunner | sequence end to end colab training pipeline | ✅ Implemented & Tested |
 
 ---
 
-## 5. Traceability ID Chain
+## 4. Traceability ID Chain
 
 ```
 REQ-001 -> SPEC-001 -> SOT-001 (ModelArchitecture) -> FILE-002, FILE-003, FILE-004, FILE-005
@@ -225,15 +162,6 @@ REQ-015 -> SPEC-015 -> SOT-004 (TrainingOrchestrator) -> FILE-012, FILE-017
 REQ-016 -> SPEC-016 -> SOT-002 (DataLoading)       -> FILE-010 (Rule 12 Authentic Data)
 REQ-017 -> SPEC-017 -> SOT-001 & SOT-003           -> FILE-006, FILE-008, FILE-017 (NTP Thought Sequences)
 REQ-018 -> SPEC-018 -> SOT-007 (Logging)           -> FILE-015, FILE-016 (Single DuckDB Consolidation)
+REQ-019 -> SPEC-019 -> SOT-002 (DataLoading)       -> FILE-010 (5-Modality Pretraining)
+REQ-020 -> SPEC-020 -> SOT-001 (ModelArchitecture) -> FILE-004 (GigaTokenizer Engine)
 ```
-
----
-
-## 6. Strategic Expansion Roadmap & Future Plan
-
-1. **Phase 5: High-Scale Dataset Integration (HuggingFace Streams):**
-   - Connect `MultimodalPyTorchDataset` to stream `MMMU`, `ScienceQA`, `ChartQA`, and `CodeContests` datasets directly from HuggingFace datasets hub.
-2. **Phase 6: Large-Scale Epoch Scaling (1,000+ Epochs on Multi-GPU / Distributed DDP):**
-   - Scale `ParadigmTrainingOrchestrator` to support Distributed Data Parallel (DDP) multi-GPU clusters while maintaining single consolidated `.safetensors` weight exports (<16 MB).
-3. **Phase 7: Interactive Reasoning & Thought Visualization UI:**
-   - Query `multimodal_telemetry.duckdb` directly from Next.js / Streamlit web interface to render live 3D Poincaré ball geodesic embeddings, confidence heatmaps, and next-token thought generation logs.

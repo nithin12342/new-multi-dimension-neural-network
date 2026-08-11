@@ -1,7 +1,7 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across paradigm training streams
+Responsibility: execute epoch iterations across 5-modality paradigm training streams
 Must Never: skip gradient scaling step during fp16 training
 """
 
@@ -15,7 +15,10 @@ from typing import Dict, Any, List, Tuple
 from src.domain.config.config_entities import SystemConfig
 from src.domain.model.chebyshev import ChebyshevFunctionalBlock
 from src.domain.model.trace_activation import TraceInvariantGate
-from src.domain.model.tokenizers import VisionPatchTokenizer, TextEmbeddingTokenizer, MultimodalTokenFusion
+from src.domain.model.tokenizers import (
+    VisionPatchTokenizer, VideoSpatiotemporalTokenizer, TextEmbeddingTokenizer,
+    AudioSpectrogramTokenizer, TabularGraphTokenizer, OmniTokenFusion
+)
 from src.domain.model.riemannian import PoincareConformalChart
 from src.domain.model.paradigm_heads import (
     SSLProjectionHead, MaskedReconstructionHead, NextTokenPredictionHead,
@@ -36,17 +39,20 @@ from src.infrastructure.logging.prediction_logger import PredictionLogExporter
 
 class MultimodalNFMNet(nn.Module):
     """
-    Complete MultimodalNFMNet Model Architecture per context.md §11.
-    Combines Vision Conv2D patch tokenizer, Text embedding tokenizer, Token fusion,
+    Complete MultimodalNFMNet 5-Modality Pretraining Model Architecture per context.md §11 & OMNI_PRETRAINING_ARCHITECTURE.md.
+    Combines 5-modality tokenizers (Vision, Video, Text, Audio, Tabular), OmniTokenFusion,
     Order-2 Chebyshev Functional Matrix Blocks, Trace-Invariant Activation Gates,
-    Conformal Riemannian Poincaré Chart, and Multi-Task Paradigm Heads (including Self-Supervised Next Token Prediction).
+    Conformal Riemannian Poincaré Chart, and Multi-Task Paradigm Heads (including Self-Supervised Next-Token Prediction).
     """
     def __init__(self, config: SystemConfig = SystemConfig()):
         super().__init__()
         m_cfg = config.model
         self.vision_tokenizer = VisionPatchTokenizer(m_cfg.image_channels, m_cfg.embed_dim, m_cfg.patch_size)
+        self.video_tokenizer = VideoSpatiotemporalTokenizer(m_cfg.image_channels, m_cfg.embed_dim, m_cfg.patch_size)
         self.text_tokenizer = TextEmbeddingTokenizer(m_cfg.vocab_size, m_cfg.embed_dim)
-        self.fusion = MultimodalTokenFusion()
+        self.audio_tokenizer = AudioSpectrogramTokenizer(1, m_cfg.embed_dim, m_cfg.patch_size)
+        self.tabular_tokenizer = TabularGraphTokenizer(15, m_cfg.embed_dim, num_tokens=4)
+        self.fusion = OmniTokenFusion()
 
         # Shared Functional Backbone (Stage 1 & 2)
         self.chebyshev1 = ChebyshevFunctionalBlock(m_cfg.embed_dim, m_cfg.tile_dim, m_cfg.chebyshev_order)
@@ -65,11 +71,22 @@ class MultimodalNFMNet(nn.Module):
         self.regressor = SupervisedRegressionHead(m_cfg.embed_dim)
         self.dec_clustering = DECClusteringHead(m_cfg.embed_dim, m_cfg.num_clusters)
 
-    def forward(self, x_img: torch.Tensor, x_txt: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Forward pass through MultimodalNFMNet."""
+    def forward(
+        self,
+        x_img: torch.Tensor,
+        x_txt: torch.Tensor,
+        x_vid: torch.Tensor = None,
+        x_aud: torch.Tensor = None,
+        x_tab: torch.Tensor = None
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass through 5-modality MultimodalNFMNet."""
         E_img = self.vision_tokenizer(x_img) # [B, N_img, 256]
         E_txt = self.text_tokenizer(x_txt) # [B, S, 256]
-        Z0 = self.fusion(E_img, E_txt) # [B, N, 256]
+        E_vid = self.video_tokenizer(x_vid) if x_vid is not None else None
+        E_aud = self.audio_tokenizer(x_aud) if x_aud is not None else None
+        E_tab = self.tabular_tokenizer(x_tab) if x_tab is not None else None
+
+        Z0 = self.fusion(E_img, E_txt, E_vid=E_vid, E_aud=E_aud, E_tab=E_tab) # [B, N_total, 256]
 
         # Backbone Stage 1
         Z1 = self.chebyshev1(Z0)
@@ -108,7 +125,7 @@ class MultimodalNFMNet(nn.Module):
 class ParadigmTrainingOrchestrator:
     """
     Master Training Orchestrator.
-    Manages sequential paradigm training across 6 CUDA streams with automatic validation,
+    Manages sequential 5-modality paradigm training across 6 CUDA streams with automatic validation,
     metric computation, self-supervised next-token prediction, and lightweight consolidated checkpoint saving.
     """
 
@@ -152,6 +169,9 @@ class ParadigmTrainingOrchestrator:
         for batch in dataloader:
             x_img = batch["image"].to(device)
             x_txt = batch["text"].to(device)
+            x_vid = batch.get("video").to(device) if "video" in batch else None
+            x_aud = batch.get("audio").to(device) if "audio" in batch else None
+            x_tab = batch.get("tabular").to(device) if "tabular" in batch else None
             targets = batch["label"].to(device)
 
             optimizer.zero_grad()
@@ -162,7 +182,7 @@ class ParadigmTrainingOrchestrator:
                     autocast_ctx = torch.cuda.amp.autocast(enabled=use_amp)
 
                 with autocast_ctx:
-                    outputs = model(x_img, x_txt)
+                    outputs = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
 
                     # Compute paradigm specific loss based on stream strategy
                     paradigm = self.config.training.stream_paradigms[stream_id]
@@ -215,9 +235,12 @@ class ParadigmTrainingOrchestrator:
             for batch in val_dataloader:
                 x_img = batch["image"].to(device)
                 x_txt = batch["text"].to(device)
+                x_vid = batch.get("video").to(device) if "video" in batch else None
+                x_aud = batch.get("audio").to(device) if "audio" in batch else None
+                x_tab = batch.get("tabular").to(device) if "tabular" in batch else None
                 targets = batch["label"].to(device)
 
-                outputs = model(x_img, x_txt)
+                outputs = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
                 loss = ce_loss_fn(outputs["logits"], targets)
 
                 total_loss += loss.item()
@@ -239,7 +262,7 @@ class ParadigmTrainingOrchestrator:
         print("[Orchestrator] Initializing storage and directory hierarchy...", flush=True)
         dirs = self.drive_mgr.initialize_directory_structure()
 
-        print("[Orchestrator] Loading authentic multimodal datasets...", flush=True)
+        print("[Orchestrator] Loading authentic 5-modality datasets (video, image, text, audio, tabular)...", flush=True)
         train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128)
         val_ds = MultimodalPyTorchDataset(self.config.data, split="val", num_samples=64)
 
@@ -250,7 +273,7 @@ class ParadigmTrainingOrchestrator:
             val_ds, batch_size=self.config.data.batch_size, shuffle=False, collate_fn=MultimodalPyTorchDataset.collate_fn
         )
 
-        print("[Orchestrator] Initializing 6 independent CUDA streams and models...", flush=True)
+        print("[Orchestrator] Initializing 6 independent CUDA streams and 5-modality models...", flush=True)
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 
@@ -265,7 +288,7 @@ class ParadigmTrainingOrchestrator:
         total_streams = self.config.training.num_streams
         num_epochs_budget = self.config.training.num_epochs
 
-        print(f"[Orchestrator] Starting 6-Stream Training Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
+        print(f"[Orchestrator] Starting 6-Stream 5-Modality Pretraining Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
 
         for stream_id in range(total_streams):
             model = models[stream_id]
@@ -351,4 +374,4 @@ class ParadigmTrainingOrchestrator:
 
         self.stream_mgr.synchronize_all()
         session_logger.log_session_end(session_stats)
-        print("[Orchestrator] Multi-Stream Training Complete! Consolidated Drive weights saved.", flush=True)
+        print("[Orchestrator] Multi-Stream 5-Modality Pretraining Complete! Consolidated Drive weights saved.", flush=True)

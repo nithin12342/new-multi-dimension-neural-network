@@ -1,8 +1,8 @@
 """
 FILE-011 | FOLDER-007 | src/infrastructure/metrics/metric_computer.py
 Owning Aggregate: MetricComputer
-Responsibility: compute 37 classification regression clustering statistical metrics
-Must Never: omit any metric key from evaluation dictionary
+Responsibility: compute 37 classification regression clustering statistical metrics and format safe file signatures
+Must Never: allow path separators in serialized checkpoint filenames
 """
 
 from typing import Dict, Any, Tuple
@@ -133,8 +133,9 @@ class ThirtySevenMetricComputer:
     ) -> str:
         """
         Format standardized serialized checkpoint filename signature containing all key metrics.
-        All 37 metrics are embedded inside the saved checkpoint dictionary.
+        Sanitizes dataset_version string to eliminate illegal path separators (e.g. 'encord-team/E-MM1-1M' -> 'encord-team_E-MM1-1M').
         """
+        safe_dataset_version = str(dataset_version).replace("/", "_").replace("\\", "_")
         filename = (
             f"CKPT_S{stream_id}_{timestamp}_"
             f"Epoch_{epoch:03d}_"
@@ -145,6 +146,6 @@ class ThirtySevenMetricComputer:
             f"ValLoss_{metrics.get('ce', 0.0):.4f}_"
             f"MSE_{metrics.get('mse', 0.0):.4f}_"
             f"Model_{model_version}_"
-            f"Dataset_{dataset_version}.pt"
+            f"Dataset_{safe_dataset_version}.pt"
         )
         return filename

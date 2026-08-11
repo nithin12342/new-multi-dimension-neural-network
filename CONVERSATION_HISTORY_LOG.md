@@ -113,7 +113,7 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 
 ---
 
-### 🔹 Session 19: Unmounted Drive SafeTensors Checkpoint Resolution
-- **User Request:** SafetensorError: I/O error: No such file or directory (os error 2) at path "/content/drive/MyDrive/SOTA_Cluster_Shared/checkpoints/model_01/..."
-- **Root Cause:** When running without `drive.mount()`, `serializer.py` was hardcoding `/content/drive/MyDrive/...` instead of resolving the active path from `GoogleDriveManager`.
-- **Solution Implemented:** Refactored `serializer.py` and `discovery.py` to use `GoogleDriveManager.resolve_path("checkpoints")`, guaranteeing valid path creation whether Google Drive is mounted (`/content/drive/MyDrive/...`) or unmounted (`/content/SOTA_Cluster_Shared/...`).
+### 🔹 Session 19 & 20: SafeTensors Filename Path Separator Bug Fix
+- **User Request:** SafetensorError: I/O error: No such file or directory (os error 2) at path "/content/drive/MyDrive/SOTA_Cluster_Shared/checkpoints/model_01/CKPT_..._Dataset_encord-team/.tmpWgPlas"
+- **Root Cause:** The forward slash `/` inside the HuggingFace dataset ID `"encord-team/E-MM1-1M"` was treated as a sub-directory separator inside `format_serialized_signature()`, causing `safetensors.torch.save_file` to write to a non-existent sub-folder `Dataset_encord-team/`.
+- **Solution Implemented:** Sanitized `dataset_version` in `metric_computer.py` by replacing `/` with `_` (`safe_dataset_version = str(dataset_version).replace('/', '_')`), producing clean signature filenames like `..._Dataset_encord-team_E-MM1-1M.safetensors` with ZERO path separators!

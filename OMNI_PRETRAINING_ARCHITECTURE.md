@@ -1,33 +1,47 @@
 # 🌌 `MultimodalNFMNet-OmniPretrain` Blueprint
 
-> **Master Architecture Specification:** Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular/Point-Cloud) Ingesting the Open-Source **E-MM1 Dataset (`encord-team/E-MM1-1M` & `encord-team/E-MM1-100M`)** into **ONE Single Combined Dataset Aggregate (`CombinedOmniDataset`)** for Modeling Human Logical Reasoning, Analytical Decomposition, Critical Thinking, and Architectural Decision Making. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
+> **Master Architecture Specification:** Tri-Aggregate Architecture (Combined Encoder, Functional Core Model, Multi-Task Decoder) for Self-Supervised Omni-Pretraining across **5 Fundamental Modalities** (Video, Image, Text, Audio, Structured Tabular/Point-Cloud) Ingesting the Open-Source **E-MM1 Dataset (`encord-team/E-MM1-1M`)**. Powered by the **GigaTokenizer High-Throughput Tokenization Engine**.
 
 ---
 
-## 1. Executive Summary & E-MM1 Dataset Integration
+## 1. Tri-Aggregate Architectural Decomposition
 
-The **`MultimodalNFMNet-OmniPretrain`** framework integrates Encord's open-source **E-MM1 dataset (`encord-team/E-MM1-1M` / `encord-team/E-MM1-100M` on Hugging Face)**.
+`MultimodalNFMNet-OmniPretrain` is explicitly decomposed into 3 core architectural aggregates:
 
-E-MM1 is an open-source dataset designed for joint cross-modal embeddings and pretraining across 5 modalities: **Audio**, **Image**, **Video**, **Point Clouds / Tabular Metrics**, and **Text**.
-
-Every sample in `CombinedOmniDataset` (`src/infrastructure/data/multimodal_dataset.py`) yields an aligned 5-modality state:
-
-```python
-sample = {
-    "image":   Tensor[3, 224, 224],       # E-MM1 Architecture Diagram / Visual Logic (MMMU / ScienceQA)
-    "video":   Tensor[3, T=4, 224, 224],   # E-MM1 Causal Video Clip (STAR / ActivityNet)
-    "text":    Tensor[S=128],               # E-MM1 GigaToken Thought Sequence (GSM8K / CodeContests)
-    "audio":   Tensor[1, 64, 64],          # E-MM1 Audio Mel-Spectrogram (LibriSpeech / AudioSet)
-    "tabular": Tensor[15],               # E-MM1 Graph & Financial Features (IEEE-CIS / PaySim / DataCo)
-    "label":   Tensor[],                   # Class Target Label
-    "sample_id": "emm1_sample_00001",
-    "metadata": {"dataset_source": "encord-team/E-MM1-1M", "authentic": True}
-}
 ```
-
-This single combined state is projected into a unified sequence:
-
-$$Z^{(0)} = \left[ E_{\text{video}} \; \Vert \; E_{\text{image}} \; \Vert \; E_{\text{text}} \; \Vert \; E_{\text{audio}} \; \Vert \; E_{\text{tabular}} \right] \in \mathbb{R}^{B \times N_{\text{total}} \times 256}$$
+[5-Modality Input Tensors] (Video, Image, Text, Audio, Tabular)
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. CombinedOmniEncoder (FILE-020: src/domain/model/encoder.py)  │
+│    - GigaTokenizerEngine (Zero-copy byte SIMD tokenization)     │
+│    - VideoSpatiotemporalTokenizer (Conv3D 16x16x2 patches)      │
+│    - VisionPatchTokenizer (Conv2D 16x16 patches)                │
+│    - AudioSpectrogramTokenizer (Mel-spectrogram projection)     │
+│    - TabularGraphTokenizer (Feature vector projection)          │
+│    - OmniTokenFusion -> Outputs Z^(0) [B, N_total, 256]          │
+└─────────────────────────────────────────────────────────────────┘
+         │ Z^(0) Sequence Tensor [B, N_total, 256]
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. FunctionalCoreModel (FILE-021: src/domain/model/core_model.py)│
+│    - Order-2 Chebyshev Functional Matrix Blocks (16x16 Tiles)   │
+│    - Trace-Invariant Activation Scaling sigma(Tr(Y)/16)         │
+│    - Global Sequence Pooling z_bar                              │
+│    - Poincaré Conformal Hyperbolic Chart -> z_riemannian        │
+└─────────────────────────────────────────────────────────────────┘
+         │ Core Outputs: Z2_sequence, z_riemannian, z_bar
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. MultiTaskOmniDecoder (FILE-022: src/domain/model/decoder.py) │
+│    - NextTokenPredictionHead (Causal Thought LM Logits y_ntp)   │
+│    - MaskedReconstructionHead (MAE Reconstruction X_recon)      │
+│    - SSLProjectionHead (L2-normalized z_proj [B, 128])         │
+│    - SupervisedClassificationHead (Classification Logits)       │
+│    - SupervisedRegressionHead (Regression Scalar Output)        │
+│    - DECClusteringHead (Student-t Soft Cluster Assignments q)   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -43,58 +57,7 @@ $$Z^{(0)} = \left[ E_{\text{video}} \; \Vert \; E_{\text{image}} \; \Vert \; E_{
 
 ---
 
-## 3. GigaTokenizer Engine & Modality Tokenization Pipeline
-
-Inspired by Stanford's **GigaToken** architecture (capable of up to **24 GB/sec tokenization throughput**), `MultimodalNFMNet-OmniPretrain` incorporates a zero-copy SIMD-accelerated tokenization engine (`GigaTokenizerEngine` in `src/domain/model/tokenizers.py`) that eliminates slow Python regular expression bottlenecks via vectorized byte-level mapping and Hash-LRU token caching:
-
-### 3.1 5-Modality Tokenization Equations
-1. **Video Spatiotemporal Tokenization ($E_{\text{video}}$):**
-   $$E_{\text{video}} = \text{Conv3D}(x_{\text{video}}, K=(2, 16, 16), S=(2, 16, 16)) \in \mathbb{R}^{B \times N_{\text{vid}} \times 256}$$
-2. **Image Patch Tokenization ($E_{\text{image}}$):**
-   $$E_{\text{image}} = \text{Conv2D}(x_{\text{image}}, K=(16, 16), S=(16, 16)) \in \mathbb{R}^{B \times N_{\text{img}} \times 256}$$
-3. **Text GigaToken Tokenization ($E_{\text{text}}$):**
-   $$E_{\text{text}} = \text{GigaTokenLookup}(x_{\text{text}}, W_{\text{vocab}}) \in \mathbb{R}^{B \times S \times 256}$$
-4. **Audio Mel-Spectrogram Tokenization ($E_{\text{audio}}$):**
-   $$E_{\text{audio}} = \text{Conv2D}(x_{\text{audio}}, K=(16, 16), S=(16, 16)) \in \mathbb{R}^{B \times N_{\text{aud}} \times 256}$$
-5. **Structured Tabular/Graph Tokenization ($E_{\text{tabular}}$):**
-   $$E_{\text{tabular}} = \text{Linear}(x_{\text{tabular}}, W_{\text{tab}}) \in \mathbb{R}^{B \times N_{\text{tab}} \times 256}$$
-
----
-
-## 4. Causal Order-2 Chebyshev Contraction & Poincaré Geometry
-
-### 4.1 Fused Matrix Contraction
-The concatenated token sequence $Z^{(0)} \in \mathbb{R}^{B \times N_{\text{total}} \times 256}$ is reshaped into atomic $16 \times 16$ tile matrix blocks $X \in \mathbb{R}^{16 \times 16}$ and processed through Stage 1 & 2 Order-2 Chebyshev Functional Blocks:
-
-$$Y = T_0(X) \cdot C_0 + T_1(X) \cdot C_1 + T_2(X) \cdot C_2 = X C_0 + X C_1 + \left( 2 X X^T - X \right) C_2$$
-
-$$\text{Trace Scale: } \sigma\left( \frac{\text{Tr}(Y)}{16} \right), \quad Z^{(l+1)} = Y \odot \sigma\left( \frac{\text{Tr}(Y)}{16} \right)$$
-
-### 4.2 Poincaré Conformal Chart Mapping
-Maps global pooled representations $z_{\text{bar}}$ to hyperbolic Poincaré ball manifold $\mathbb{D}^n$ to capture hierarchical reasoning depth:
-
-$$z_{\text{riemannian}} = \text{PoincareChart}(z_{\text{bar}}), \quad d_{\mathcal{M}}(x, y) = \text{arcosh}\left( 1 + 2 \frac{\|x - y\|^2}{(1 - \|x\|^2)(1 - \|y\|^2)} \right)$$
-
----
-
-## 5. Self-Supervised Pretraining Loss Objectives
-
-Pretraining updates 6 parallel CUDA execution streams using 5 complementary self-supervised loss functions:
-
-1. **Causal Next-Token Prediction Loss ($\mathcal{L}_{\text{NTP}}$):**
-   $$\mathcal{L}_{\text{NTP}} = -\frac{1}{B (S-1)} \sum_{b=1}^{B} \sum_{t=1}^{S-1} \log \text{Softmax}\left( \hat{y}_{b, t} \right)_{x_{b, t+1}}$$
-2. **Multimodal InfoNCE Contrastive Loss ($\mathcal{L}_{\text{InfoNCE}}$):**
-   $$\mathcal{L}_{\text{InfoNCE}} = -\log \frac{\exp(z_i \cdot z_j / \tau)}{\sum_{k} \exp(z_i \cdot z_k / \tau)}$$
-3. **Barlow Twins Cross-Correlation Loss ($\mathcal{L}_{\text{Barlow}}$):**
-   $$\mathcal{L}_{\text{Barlow}} = \sum_{i} (1 - C_{ii})^2 + \lambda \sum_{i} \sum_{j \neq i} C_{ij}^2$$
-4. **Masked Autoencoder Reconstruction Loss ($\mathcal{L}_{\text{MAE}}$):**
-   $$\mathcal{L}_{\text{MAE}} = \frac{1}{B \cdot N} \| X_{\text{recon}} - Z^{(2)} \|^2$$
-5. **Deep Embedded Clustering Loss ($\mathcal{L}_{\text{DEC}}$):**
-   $$\mathcal{L}_{\text{DEC}} = \text{KL}(P \parallel Q) = \sum_{i} \sum_{j} p_{ij} \log \frac{p_{ij}}{q_{ij}}$$
-
----
-
-## 6. Storage & Detailed DuckDB Database Logging
+## 3. Storage & Detailed DuckDB Database Logging
 
 All pretraining telemetry, E-MM1 5-modality sample predictions, 37 evaluation metrics, and GPU session stats are logged in a single compressed file on Google Drive:  
 `/content/drive/MyDrive/SOTA_Cluster_Shared/logs/multimodal_telemetry.duckdb`

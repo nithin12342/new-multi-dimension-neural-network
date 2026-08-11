@@ -1,7 +1,7 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across 5-modality paradigm training streams
+Responsibility: execute epoch iterations across 5-modality paradigm training streams via tri-aggregate architecture
 Must Never: skip gradient scaling step during fp16 training
 """
 
@@ -13,17 +13,10 @@ import numpy as np
 from typing import Dict, Any, List, Tuple
 
 from src.domain.config.config_entities import SystemConfig
-from src.domain.model.chebyshev import ChebyshevFunctionalBlock
-from src.domain.model.trace_activation import TraceInvariantGate
-from src.domain.model.tokenizers import (
-    VisionPatchTokenizer, VideoSpatiotemporalTokenizer, TextEmbeddingTokenizer,
-    AudioSpectrogramTokenizer, TabularGraphTokenizer, OmniTokenFusion
-)
-from src.domain.model.riemannian import PoincareConformalChart
-from src.domain.model.paradigm_heads import (
-    SSLProjectionHead, MaskedReconstructionHead, NextTokenPredictionHead,
-    SupervisedClassificationHead, SupervisedRegressionHead, DECClusteringHead
-)
+from src.domain.model.encoder import CombinedOmniEncoder
+from src.domain.model.core_model import FunctionalCoreModel
+from src.domain.model.decoder import MultiTaskOmniDecoder
+
 from src.domain.loss.loss_functions import (
     InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss,
     CrossEntropyParadigmLoss, DECKLRegLoss
@@ -39,37 +32,33 @@ from src.infrastructure.logging.prediction_logger import PredictionLogExporter
 
 class MultimodalNFMNet(nn.Module):
     """
-    Complete MultimodalNFMNet 5-Modality Pretraining Model Architecture per context.md §11 & OMNI_PRETRAINING_ARCHITECTURE.md.
-    Combines 5-modality tokenizers (Vision, Video, Text, Audio, Tabular), OmniTokenFusion,
-    Order-2 Chebyshev Functional Matrix Blocks, Trace-Invariant Activation Gates,
-    Conformal Riemannian Poincaré Chart, and Multi-Task Paradigm Heads (including Self-Supervised Next-Token Prediction).
+    Complete MultimodalNFMNet Architecture decomposed into 3 Core Tri-Aggregates:
+    1. CombinedOmniEncoder (GigaTokenizer-backed 5-Modality Tokenization & Fusion)
+    2. FunctionalCoreModel (Order-2 Chebyshev Matrix Contractions + Poincaré Hyperbolic Chart)
+    3. MultiTaskOmniDecoder (NTP LM Head, MAE Recon, SSL Projection, Classification, Regression, DEC Clustering)
     """
     def __init__(self, config: SystemConfig = SystemConfig()):
         super().__init__()
         m_cfg = config.model
-        self.vision_tokenizer = VisionPatchTokenizer(m_cfg.image_channels, m_cfg.embed_dim, m_cfg.patch_size)
-        self.video_tokenizer = VideoSpatiotemporalTokenizer(m_cfg.image_channels, m_cfg.embed_dim, m_cfg.patch_size)
-        self.text_tokenizer = TextEmbeddingTokenizer(m_cfg.vocab_size, m_cfg.embed_dim)
-        self.audio_tokenizer = AudioSpectrogramTokenizer(1, m_cfg.embed_dim, m_cfg.patch_size)
-        self.tabular_tokenizer = TabularGraphTokenizer(15, m_cfg.embed_dim, num_tokens=4)
-        self.fusion = OmniTokenFusion()
-
-        # Shared Functional Backbone (Stage 1 & 2)
-        self.chebyshev1 = ChebyshevFunctionalBlock(m_cfg.embed_dim, m_cfg.tile_dim, m_cfg.chebyshev_order)
-        self.trace_gate1 = TraceInvariantGate(m_cfg.tile_dim)
-        self.chebyshev2 = ChebyshevFunctionalBlock(m_cfg.embed_dim, m_cfg.tile_dim, m_cfg.chebyshev_order)
-        self.trace_gate2 = TraceInvariantGate(m_cfg.tile_dim)
-
-        # Conformal Riemannian Chart
-        self.riemannian_chart = PoincareConformalChart(m_cfg.poincare_curvature)
-
-        # Paradigm Output Heads
-        self.ssl_projector = SSLProjectionHead(m_cfg.embed_dim, m_cfg.projection_dim)
-        self.masked_recon = MaskedReconstructionHead(m_cfg.embed_dim)
-        self.ntp_head = NextTokenPredictionHead(m_cfg.embed_dim, m_cfg.vocab_size)
-        self.classifier = SupervisedClassificationHead(m_cfg.embed_dim, m_cfg.num_classes)
-        self.regressor = SupervisedRegressionHead(m_cfg.embed_dim)
-        self.dec_clustering = DECClusteringHead(m_cfg.embed_dim, m_cfg.num_clusters)
+        self.encoder = CombinedOmniEncoder(
+            embed_dim=m_cfg.embed_dim,
+            patch_size=m_cfg.patch_size,
+            vocab_size=m_cfg.vocab_size,
+            num_tab_features=15
+        )
+        self.core = FunctionalCoreModel(
+            embed_dim=m_cfg.embed_dim,
+            tile_dim=m_cfg.tile_dim,
+            chebyshev_order=m_cfg.chebyshev_order,
+            poincare_curvature=m_cfg.poincare_curvature
+        )
+        self.decoder = MultiTaskOmniDecoder(
+            embed_dim=m_cfg.embed_dim,
+            proj_dim=m_cfg.projection_dim,
+            vocab_size=m_cfg.vocab_size,
+            num_classes=m_cfg.num_classes,
+            num_clusters=m_cfg.num_clusters
+        )
 
     def forward(
         self,
@@ -79,47 +68,14 @@ class MultimodalNFMNet(nn.Module):
         x_aud: torch.Tensor = None,
         x_tab: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
-        """Forward pass through 5-modality MultimodalNFMNet."""
-        E_img = self.vision_tokenizer(x_img) # [B, N_img, 256]
-        E_txt = self.text_tokenizer(x_txt) # [B, S, 256]
-        E_vid = self.video_tokenizer(x_vid) if x_vid is not None else None
-        E_aud = self.audio_tokenizer(x_aud) if x_aud is not None else None
-        E_tab = self.tabular_tokenizer(x_tab) if x_tab is not None else None
-
-        Z0 = self.fusion(E_img, E_txt, E_vid=E_vid, E_aud=E_aud, E_tab=E_tab) # [B, N_total, 256]
-
-        # Backbone Stage 1
-        Z1 = self.chebyshev1(Z0)
-        Z1_scaled = self.trace_gate1(Z1)
-
-        # Backbone Stage 2
-        Z2 = self.chebyshev2(Z1_scaled)
-        Z2_scaled = self.trace_gate2(Z2)
-
-        # Global Token Pooling
-        z_bar = Z2_scaled.mean(dim=1) # [B, 256]
-
-        # Riemannian Conformal Chart Mapping
-        z_riemannian = self.riemannian_chart(z_bar)
-
-        # Compute Paradigm Head Outputs
-        z_proj = self.ssl_projector(z_riemannian)
-        x_recon = self.masked_recon(Z2_scaled)
-        ntp_logits = self.ntp_head(Z2_scaled)
-        logits = self.classifier(z_riemannian)
-        reg_out = self.regressor(z_riemannian)
-        q_dist = self.dec_clustering(z_riemannian)
-
-        return {
-            "z_bar": z_bar,
-            "z_riemannian": z_riemannian,
-            "z_proj": z_proj,
-            "x_recon": x_recon,
-            "ntp_logits": ntp_logits,
-            "logits": logits,
-            "reg_out": reg_out,
-            "q_dist": q_dist
-        }
+        """Forward pass executing Encoder -> Core Model -> Decoder tri-aggregate pipeline."""
+        # 1. Combined Encoder
+        Z0 = self.encoder(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+        # 2. Functional Core Model
+        Z_seq, z_riemannian, z_bar = self.core(Z0)
+        # 3. Multi-Task Omni Decoder
+        outputs = self.decoder(Z_seq, z_riemannian, z_bar)
+        return outputs
 
 
 class ParadigmTrainingOrchestrator:
@@ -262,7 +218,7 @@ class ParadigmTrainingOrchestrator:
         print("[Orchestrator] Initializing storage and directory hierarchy...", flush=True)
         dirs = self.drive_mgr.initialize_directory_structure()
 
-        print("[Orchestrator] Loading authentic 5-modality datasets (video, image, text, audio, tabular)...", flush=True)
+        print("[Orchestrator] Loading authentic E-MM1 5-modality datasets (video, image, text, audio, tabular)...", flush=True)
         train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128)
         val_ds = MultimodalPyTorchDataset(self.config.data, split="val", num_samples=64)
 
@@ -273,7 +229,7 @@ class ParadigmTrainingOrchestrator:
             val_ds, batch_size=self.config.data.batch_size, shuffle=False, collate_fn=MultimodalPyTorchDataset.collate_fn
         )
 
-        print("[Orchestrator] Initializing 6 independent CUDA streams and 5-modality models...", flush=True)
+        print("[Orchestrator] Initializing 6 independent CUDA streams and tri-aggregate MultimodalNFMNet models...", flush=True)
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 

@@ -1,7 +1,7 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across 5-modality paradigm training streams via tri-aggregate architecture
+Responsibility: execute epoch iterations across 5-modality paradigm training streams via tri-aggregate nested matrix architecture
 Must Never: skip gradient scaling step during fp16 training
 """
 
@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Tuple
 from src.domain.config.config_entities import SystemConfig
 from src.domain.model.encoder import CombinedOmniEncoder
 from src.domain.model.core_model import FunctionalCoreModel
-from src.domain.model.decoder import MultiTaskOmniDecoder
+from src.domain.model.decoder import SingleNestedMatrixDecoder
 
 from src.domain.loss.loss_functions import (
     InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss,
@@ -33,9 +33,9 @@ from src.infrastructure.logging.prediction_logger import PredictionLogExporter
 class MultimodalNFMNet(nn.Module):
     """
     Complete MultimodalNFMNet Architecture decomposed into 3 Core Tri-Aggregates:
-    1. CombinedOmniEncoder (GigaTokenizer-backed 5-Modality Tokenization & Fusion)
+    1. CombinedOmniEncoder (GigaTokenizer-backed 5-Modality Tokenization + Encoder Nested Matrix Contractions)
     2. FunctionalCoreModel (Order-2 Chebyshev Matrix Contractions + Poincaré Hyperbolic Chart)
-    3. MultiTaskOmniDecoder (NTP LM Head, MAE Recon, SSL Projection, Classification, Regression, DEC Clustering)
+    3. SingleNestedMatrixDecoder (Single Unified Multi-Task Decoder backed by Chebyshev Nested Matrix Polynomial Contractions)
     """
     def __init__(self, config: SystemConfig = SystemConfig()):
         super().__init__()
@@ -44,7 +44,9 @@ class MultimodalNFMNet(nn.Module):
             embed_dim=m_cfg.embed_dim,
             patch_size=m_cfg.patch_size,
             vocab_size=m_cfg.vocab_size,
-            num_tab_features=15
+            num_tab_features=15,
+            tile_dim=m_cfg.tile_dim,
+            chebyshev_order=m_cfg.chebyshev_order
         )
         self.core = FunctionalCoreModel(
             embed_dim=m_cfg.embed_dim,
@@ -52,8 +54,10 @@ class MultimodalNFMNet(nn.Module):
             chebyshev_order=m_cfg.chebyshev_order,
             poincare_curvature=m_cfg.poincare_curvature
         )
-        self.decoder = MultiTaskOmniDecoder(
+        self.decoder = SingleNestedMatrixDecoder(
             embed_dim=m_cfg.embed_dim,
+            tile_dim=m_cfg.tile_dim,
+            chebyshev_order=m_cfg.chebyshev_order,
             proj_dim=m_cfg.projection_dim,
             vocab_size=m_cfg.vocab_size,
             num_classes=m_cfg.num_classes,
@@ -68,12 +72,12 @@ class MultimodalNFMNet(nn.Module):
         x_aud: torch.Tensor = None,
         x_tab: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
-        """Forward pass executing Encoder -> Core Model -> Decoder tri-aggregate pipeline."""
-        # 1. Combined Encoder
+        """Forward pass executing Encoder -> Core Model -> Single Decoder nested matrix pipeline."""
+        # 1. Combined Encoder with Nested Matrix Contraction
         Z0 = self.encoder(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
-        # 2. Functional Core Model
+        # 2. Functional Core Model with Chebyshev Matrix Contractions & Poincaré Chart
         Z_seq, z_riemannian, z_bar = self.core(Z0)
-        # 3. Multi-Task Omni Decoder
+        # 3. Single Nested Matrix Decoder combining all decoder functionality
         outputs = self.decoder(Z_seq, z_riemannian, z_bar)
         return outputs
 
@@ -229,7 +233,7 @@ class ParadigmTrainingOrchestrator:
             val_ds, batch_size=self.config.data.batch_size, shuffle=False, collate_fn=MultimodalPyTorchDataset.collate_fn
         )
 
-        print("[Orchestrator] Initializing 6 independent CUDA streams and tri-aggregate MultimodalNFMNet models...", flush=True)
+        print("[Orchestrator] Initializing 6 independent CUDA streams and single nested matrix decoder MultimodalNFMNet models...", flush=True)
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 

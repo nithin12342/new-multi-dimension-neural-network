@@ -1,8 +1,8 @@
 """
 FILE-017 | FOLDER-011 | src/application/orchestrator/training_loop.py
 Owning Aggregate: TrainingLoop
-Responsibility: execute epoch iterations across 6 unified self-supervised omni-pretraining streams with dynamic weight mutation audit
-Must Never: allow optimizer step skipping to freeze model parameters across epochs
+Responsibility: execute epoch iterations across 6 unified self-supervised omni-pretraining streams with dynamic loss metrics and cuda memory cleanup
+Must Never: hide training loss behind static validation metrics in CLI logging
 """
 
 import os
@@ -376,10 +376,14 @@ class ParadigmTrainingOrchestrator:
                     is_best=is_best
                 )
 
+                train_loss_val = losses_dict.get("ce", 0.0)
+                val_loss_val = val_metrics.get("ce", 0.0)
+
                 print(
                     f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
                     f"Epoch {epoch:03d}/{target_epochs:03d} | "
-                    f"SSL Loss: {val_metrics.get('ce', 0.0):.4f} | "
+                    f"Train Loss: {train_loss_val:.4f} | "
+                    f"Val Loss: {val_loss_val:.4f} | "
                     f"PPL: {val_metrics.get('ppl', 1.0):.2f} | "
                     f"Silhouette: {val_metrics.get('silhouette', 0.0):.4f} | "
                     f"Consolidated Drive Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",

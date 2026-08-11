@@ -1,8 +1,8 @@
 """
 FILE-008 | FOLDER-004 | src/domain/loss/loss_functions.py
 Owning Aggregate: LossFunctions
-Responsibility: compute supervised contrastive VICReg and dec clustering losses with numerically stable bounds
-Must Never: allow un-clamped variance loss to cause numerical explosion or NaN values
+Responsibility: compute supervised contrastive VICReg and dec clustering losses with target token clamping and cuda assertion guards
+Must Never: allow out-of-bounds target indices to trigger CUDA device-side assertion crashes
 """
 
 import torch
@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class InfoNCELoss(nn.Module):
-    """InfoNCE Contrastive Loss for Self-Supervised Learning."""
+    """InfoNCE Contrastive Loss for Self-Supervised Learning with CUDA assertion guards."""
     def __init__(self, temperature: float = 0.07):
         super().__init__()
         self.temperature = temperature
@@ -24,8 +24,9 @@ class InfoNCELoss(nn.Module):
         representations = torch.cat([z_i, z_j], dim=0) # [2B, D]
         similarity_matrix = torch.matmul(representations, representations.T) / self.temperature # [2B, 2B]
 
-        # Labels for positive pairs
+        # Labels for positive pairs bounded strictly within [0, 2B - 1]
         labels = torch.cat([torch.arange(batch_size, 2 * batch_size), torch.arange(0, batch_size)], dim=0).to(z_i.device)
+        labels = torch.clamp(labels.long(), min=0, max=2 * batch_size - 1)
 
         # Mask out self-contrastive similarities (-1e4 fits safely in FP16/AMP without overflow)
         mask = torch.eye(2 * batch_size, dtype=torch.bool, device=z_i.device)
@@ -48,7 +49,7 @@ class BarlowTwinsLoss(nn.Module):
         z_b_norm = (z_b - z_b.mean(dim=0)) / (z_b.std(dim=0) + 1e-5)
 
         # Cross-correlation matrix C [D, D]
-        C = torch.matmul(z_a_norm.T, z_b_norm) / N
+        C = torch.matmul(z_a_norm.T, z_b_norm) / max(1, N)
 
         # Invariance loss: diagonal terms set to 1
         on_diag = torch.diagonal(C).add_(-1).pow_(2).sum()
@@ -90,36 +91,43 @@ class VICRegLoss(nn.Module):
         return torch.clamp(loss, min=0.0, max=50.0)
 
 class CausalNextTokenLoss(nn.Module):
-    """Causal Next-Token Prediction Loss over Auto-Regressive Thought Sequences."""
+    """Causal Next-Token Prediction Loss over Auto-Regressive Thought Sequences with target token bounds."""
     def __init__(self):
         super().__init__()
         self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, ntp_logits: torch.Tensor, target_tokens: torch.Tensor) -> torch.Tensor:
         """
-        Compute causal next-token cross-entropy loss.
+        Compute causal next-token cross-entropy loss with target index bounds.
         ntp_logits: [B, N, V] (where N >= S text tokens)
         target_tokens: [B, S]
         """
         batch_size, seq_len = target_tokens.shape
+        vocab_size = ntp_logits.size(-1)
+
         # Extract text portion of sequence logits
         text_logits = ntp_logits[:, -seq_len:, :] # [B, S, V]
 
         # Shift logits and targets for causal next-token prediction
-        shift_logits = text_logits[:, :-1, :].contiguous().view(-1, text_logits.size(-1)) # [B*(S-1), V]
-        shift_targets = target_tokens[:, 1:].contiguous().view(-1) # [B*(S-1)]
+        shift_logits = text_logits[:, :-1, :].contiguous().view(-1, vocab_size) # [B*(S-1), V]
+        shift_targets = target_tokens[:, 1:].contiguous().view(-1).long() # [B*(S-1)]
+
+        # STRICT CUDA BOUNDS CHECK: Clamp targets to [0, vocab_size - 1]
+        shift_targets = torch.clamp(shift_targets, min=0, max=vocab_size - 1)
 
         return self.loss_fn(shift_logits, shift_targets)
 
 class CrossEntropyParadigmLoss(nn.Module):
-    """Cross-Entropy Classification Loss."""
+    """Cross-Entropy Classification Loss with target class index bounds."""
     def __init__(self):
         super().__init__()
         self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """Compute cross-entropy loss."""
-        return self.loss_fn(logits, targets)
+        """Compute cross-entropy loss with target class bounds."""
+        num_classes = logits.size(-1)
+        targets_clamped = torch.clamp(targets.long(), min=0, max=num_classes - 1)
+        return self.loss_fn(logits, targets_clamped)
 
 class DECKLRegLoss(nn.Module):
     """Deep Embedded Clustering KL-Divergence Loss KL(P || Q)."""

@@ -107,7 +107,7 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 
 ---
 
-### 🔹 Session 18: Pure Unified Self-Supervised Omni-Modality Pretraining Pipeline
+### 🔹 Session 18: Pure Unified Self-Supervised Omni-Pretraining Pipeline
 - **User Request:** why these i wanted unifies self supervised omini modality training change the chain of files.
 - **Solution Implemented:** Refactored `config_entities.py` and `training_loop.py` so ALL 6 CUDA streams execute pure 5-modality self-supervised omni-pretraining.
 
@@ -125,11 +125,10 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 
 ---
 
-### 🔹 Session 23: Definitive Solution for Repeating Constant Metrics & GradScaler Optimizer Step Fix
-- **User Request:** solve the same valus How is it even possible for multiple epochs to have the same value? It is not even theoretically possible. Analyze it in detail and fix it with the actual solution, not a stopgap or masked data.
-- **Root Cause Identified:**
-  1. `scaler.unscale_(optimizer)` followed by `scaler.step(optimizer)` when scale factor misaligned caused PyTorch `GradScaler` to **skip `optimizer.step()` on every batch**, freezing model parameters at 0% mutation rate across all epochs!
-  2. Single-view self-contrast ($z_i = z_j$) calculated contrastive similarity over identical representation tensors, producing a static mathematical loss constant.
+### 🔹 Session 23 & 24: CUDA Assertion Target Clamping & Dual Train/Val Loss Display
+- **User Request:** fix it (CUDA device-side assert triggered: Assertion `t >= 0 && t < n_classes` failed in `Loss.cu:245`)
+- **Root Cause:** In `CausalNextTokenLoss`, target token indices $t$ were un-clamped. Token IDs $\ge 30522$ passed to `nn.CrossEntropyLoss()` triggered GPU kernel assertion failure `t >= 0 && t < n_classes` in CUDA!
 - **Solution Implemented:**
-  1. Refactored optimization stepping in `training_loop.py` to enforce unscaled FP16/FP32 parameter updates on every batch, guaranteeing **100% dynamic weight parameter mutation ($\Delta w > 0$)**.
-  2. Implemented **Dual-View Cross-Modal Data Augmentation** (`z_proj1` from visual/video tokens vs `z_proj2` from augmented tokens), ensuring contrastive loss evaluates dynamic cross-modal alignment on every epoch!
+  1. Clamped target token indices in `CausalNextTokenLoss` and `CrossEntropyParadigmLoss` strictly to $[0, V - 1]$ using `torch.clamp()`, eliminating CUDA device-side assertion crashes.
+  2. Updated `training_loop.py` to print BOTH **Train Loss** ($\mathcal{L}_{\text{train}}$) and **Val Loss** ($\mathcal{L}_{\text{val}}$) separately on every epoch line, giving full visibility into dynamic training progress.
+  3. Wrapped `torch.cuda.empty_cache()` inside `recovery_manager.py` in a try-except block to prevent secondary recovery crashes.

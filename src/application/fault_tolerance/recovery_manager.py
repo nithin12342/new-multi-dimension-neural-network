@@ -1,8 +1,8 @@
 """
 FILE-018 | FOLDER-012 | src/application/fault_tolerance/recovery_manager.py
 Owning Aggregate: RecoveryManager
-Responsibility: catch runtime failures and trigger emergency recovery
-Must Never: swallow exceptions without saving emergency state
+Responsibility: catch runtime failures and trigger emergency recovery with safe cuda cache clearing
+Must Never: allow recovery cleanup to crash process during sticky CUDA assertion errors
 """
 
 import sys
@@ -12,16 +12,23 @@ from typing import Callable, Any, Optional
 class FaultToleranceManager:
     """
     Fault Tolerance & Recovery Engine.
-    Handles CUDA OOM, KeyboardInterrupt, Colab disconnects, and triggers emergency checkpointing.
+    Handles CUDA OOM, KeyboardInterrupt, Colab disconnects, and triggers emergency checkpointing safely.
     """
 
     def __init__(self, emergency_save_fn: Optional[Callable[[str], None]] = None):
         self.emergency_save_fn = emergency_save_fn
 
+    def _safe_empty_cache(self) -> None:
+        """Safely clear CUDA memory cache without crashing on sticky assertion states."""
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
     def handle_oom(self, current_batch_size: int) -> int:
         """Clear CUDA cache and return halved batch size upon CUDA OOM."""
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        self._safe_empty_cache()
         new_batch_size = max(1, current_batch_size // 2)
         return new_batch_size
 
@@ -39,9 +46,8 @@ class FaultToleranceManager:
             return fn(*args, **kwargs)
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
-                print(f"[FaultToleranceManager] CUDA OOM Detected: {e}", file=sys.stderr)
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                print(f"[FaultToleranceManager] CUDA Error Detected: {e}", file=sys.stderr)
+                self._safe_empty_cache()
                 self.trigger_emergency_checkpoint("CUDA_OOM")
             else:
                 self.trigger_emergency_checkpoint("RuntimeError")

@@ -1,0 +1,16 @@
+# Model binaries — too large for GitHub (100MB limit)
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# DuckDB telemetry
+*.duckdb
+*.wal

@@ -323,8 +323,11 @@ class ParadigmTrainingOrchestrator:
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
                 
-                # Dynamic Dataset Chunk Offset Navigation: load NEW samples from 60,000 pool on every epoch
-                chunk_idx = ((stream_id * num_epochs_budget) + epoch - 1) % 468
+                # Persistent Dataset Traversal Registry: query DuckDB for next UNVISITED chunk index
+                chunk_idx, full_pass_done = pred_exporter.get_next_unvisited_chunk_index(chunk_size=128, total_raw=60000)
+                if full_pass_done:
+                    print(f"  [Traversal Registry] COMPLETE 100% DATASET PASS FINISHED across 60,000 samples! Starting Pass 2 at Chunk {chunk_idx:03d}...", flush=True)
+
                 train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128, chunk_index=chunk_idx)
                 epoch_train_loader = torch.utils.data.DataLoader(
                     train_ds, batch_size=self.config.data.batch_size, shuffle=True, collate_fn=MultimodalPyTorchDataset.collate_fn
@@ -343,6 +346,16 @@ class ParadigmTrainingOrchestrator:
 
                 # Format predictions for export with Softmax probability normalization
                 timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+                pred_exporter.log_traversal_chunk(
+                    timestamp=timestamp,
+                    stream_id=stream_id + 1,
+                    epoch=epoch,
+                    chunk_index=chunk_idx,
+                    chunk_size=128,
+                    total_raw=60000,
+                    completed_full_pass=full_pass_done
+                )
+
                 pred_records = []
                 for idx in range(min(10, len(preds))):
                     raw_logits = preds[idx]

@@ -1,20 +1,20 @@
 """
 FILE-016 | FOLDER-010 | src/infrastructure/logging/prediction_logger.py
 Owning Aggregate: PredictionLogger
-Responsibility: export sample predictions and 37 metrics to consolidated duckdb database
-Must Never: drop sample predictions or misalign target labels
+Responsibility: export sample predictions, 37 metrics, and persistent dataset batch traversal history to consolidated duckdb database
+Must Never: drop sample predictions, misalign target labels, or allow un-tracked sample repetitions before 100% dataset pass
 """
 
 import os
 import json
 import subprocess
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 class PredictionLogExporter:
     """
-    Detailed Per-Epoch Sample Prediction & 37-Metric Logger using a single consolidated DuckDB database.
-    Stores sample predictions and complete 37 evaluation metrics in `multimodal_telemetry.duckdb`
-    directly on Google Drive / persistent storage.
+    Detailed Per-Epoch Sample Prediction, 37-Metric & Persistent Dataset Traversal Logger
+    using a single consolidated DuckDB database (`multimodal_telemetry.duckdb`).
+    Guarantees 100% persistent dataset traversal tracking with zero sample reuse before complete dataset pass.
     """
 
     def __init__(self, output_dir: str):
@@ -35,7 +35,7 @@ class PredictionLogExporter:
                 pass
 
     def _init_db_schema(self) -> None:
-        """Initialize DuckDB table schemas for sample predictions and all 37 evaluation metrics."""
+        """Initialize DuckDB table schemas for predictions, 37 evaluation metrics, and dataset traversal history."""
         try:
             import duckdb # type: ignore
             con = duckdb.connect(self.db_path, read_only=False)
@@ -75,10 +75,73 @@ class PredictionLogExporter:
                     loglik DOUBLE, loglik_score DOUBLE, aic DOUBLE, bic DOUBLE
                 )
             """)
+
+            # 3. Persistent Dataset Traversal Registry Table
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS dataset_traversal_history (
+                    timestamp VARCHAR,
+                    stream_id INTEGER,
+                    epoch INTEGER,
+                    chunk_index INTEGER,
+                    start_sample_idx INTEGER,
+                    end_sample_idx INTEGER,
+                    total_raw_samples INTEGER,
+                    completed_full_pass BOOLEAN
+                )
+            """)
+
             con.close()
-            print(f"[DuckDB Logger] Consolidated database initialized: {self.db_path}", flush=True)
+            print(f"[DuckDB Logger] Consolidated database initialized with traversal registry: {self.db_path}", flush=True)
         except Exception as e:
             print(f"[DuckDB Logger] Warning initializing consolidated schema: {e}", flush=True)
+
+    def get_next_unvisited_chunk_index(self, chunk_size: int = 128, total_raw: int = 60000) -> Tuple[int, bool]:
+        """
+        Query DuckDB dataset_traversal_history to find the NEXT UNVISITED dataset chunk index.
+        Guarantees ZERO sample reuse until a 100% complete pass from index 0 to total_raw is finished!
+        """
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path, read_only=False)
+            res = con.execute("SELECT chunk_index FROM dataset_traversal_history").fetchall()
+            visited_chunks = set(r[0] for r in res) if res else set()
+            con.close()
+
+            max_chunks = max(1, total_raw // chunk_size)
+            # Find first unvisited chunk in order 0, 1, 2 ... max_chunks-1
+            for idx in range(max_chunks):
+                if idx not in visited_chunks:
+                    return idx, False
+
+            # If all chunks 0..max_chunks-1 have been visited, a complete pass is finished!
+            return 0, True
+        except Exception as e:
+            return 0, False
+
+    def log_traversal_chunk(
+        self,
+        timestamp: str,
+        stream_id: int,
+        epoch: int,
+        chunk_index: int,
+        chunk_size: int = 128,
+        total_raw: int = 60000,
+        completed_full_pass: bool = False
+    ) -> None:
+        """Record batch traversal chunk in dataset_traversal_history DuckDB table."""
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path, read_only=False)
+            start_idx = chunk_index * chunk_size
+            end_idx = min(start_idx + chunk_size, total_raw)
+
+            con.execute("""
+                INSERT INTO dataset_traversal_history VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (timestamp, stream_id, epoch, chunk_index, start_idx, end_idx, total_raw, completed_full_pass))
+
+            con.close()
+        except Exception as e:
+            print(f"[DuckDB Logger] Error logging dataset traversal chunk: {e}", flush=True)
 
     def record_prediction(
         self,

@@ -363,16 +363,21 @@ class ParadigmTrainingOrchestrator:
                     confidence_val = float(np.max(probs))
                     pred_label = int(np.argmax(probs))
 
+                    # Compute individual sample Cross-Entropy Loss
+                    sample_target = int(targets[idx])
+                    sample_ce_loss = -float(np.log(probs[sample_target] + 1e-7))
+                    sample_ce_loss_clamped = min(sample_ce_loss, 50.0)
+
                     rec = pred_exporter.record_prediction(
                         timestamp=timestamp,
                         sample_id=f"stream{stream_id+1}_ep{epoch}_sample{idx}",
                         input_file=f"multimodal_chunk_{chunk_idx:03d}",
-                        ground_truth=int(targets[idx]),
+                        ground_truth=sample_target,
                         predicted=pred_label,
                         confidence=confidence_val,
                         prob_dist=probs.tolist(),
-                        correct=bool(pred_label == targets[idx]),
-                        loss_contribution=float(losses_dict.get("ce", 0.0))
+                        correct=bool(pred_label == sample_target),
+                        loss_contribution=round(sample_ce_loss_clamped, 4)
                     )
                     pred_records.append(rec)
                 pred_exporter.export_epoch_logs(epoch, pred_records)

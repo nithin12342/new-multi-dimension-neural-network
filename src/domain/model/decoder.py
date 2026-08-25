@@ -50,6 +50,10 @@ class SingleNestedMatrixDecoder(nn.Module):
         self.reg_projection = nn.Linear(embed_dim, 1)                # Regression Scalar
         self.centroids = nn.Parameter(torch.randn(num_clusters, embed_dim) * 0.1) # DEC Cluster Centroids
 
+        # Anti-Mode-Collapse Initializer: Xavier Uniform on classification projection head to eliminate index 8 attractor bias
+        nn.init.xavier_uniform_(self.cls_projection.weight)
+        nn.init.zeros_(self.cls_projection.bias)
+
     def forward(self, Z_sequence: torch.Tensor, z_riemannian: torch.Tensor, z_bar: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Single Decoder Forward Pass using Nested Matrix Contractions.

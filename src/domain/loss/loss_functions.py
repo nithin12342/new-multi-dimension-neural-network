@@ -113,16 +113,18 @@ class CausalNextTokenLoss(nn.Module):
         return torch.clamp(loss, min=0.0, max=50.0)
 
 class CrossEntropyParadigmLoss(nn.Module):
-    """Cross-Entropy Classification Loss with target class index bounds."""
-    def __init__(self):
+    """Cross-Entropy Classification Loss with logit temperature scaling and target class index bounds."""
+    def __init__(self, temperature: float = 2.0):
         super().__init__()
+        self.temperature = temperature
         self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """Compute cross-entropy loss with target class bounds."""
+        """Compute cross-entropy loss with logit temperature scaling and target class bounds."""
         num_classes = logits.size(-1)
         targets_clamped = torch.clamp(targets.long(), min=0, max=num_classes - 1)
-        loss = self.loss_fn(logits, targets_clamped)
+        scaled_logits = logits / self.temperature
+        loss = self.loss_fn(scaled_logits, targets_clamped)
         return torch.clamp(loss, min=0.0, max=50.0)
 
 class DECKLRegLoss(nn.Module):

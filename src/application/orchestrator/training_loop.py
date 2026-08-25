@@ -296,13 +296,17 @@ class ParadigmTrainingOrchestrator:
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 
-        print("[Orchestrator] Initializing lightweight dummy weights...", flush=True)
-        self.serializer.create_dummy_weights(models, self.config)
-
         scanner = CheckpointDiscoveryScanner(dirs["checkpoints"])
         session_logger = SessionTelemetryLogger(dirs["logs"])
         pred_exporter = PredictionLogExporter(dirs["logs"])
         session_stats = session_logger.log_session_start()
+
+        has_existing_ckpts = any(scanner.get_latest_valid_checkpoint(s + 1) is not None for s in range(self.config.training.num_streams))
+        if has_existing_ckpts:
+            print("[Orchestrator] Active checkpoints detected on storage — Skipping dummy weight creation.", flush=True)
+        else:
+            print("[Orchestrator] Initializing lightweight baseline dummy weights (First run)...", flush=True)
+            self.serializer.create_dummy_weights(models, self.config)
 
         total_streams = self.config.training.num_streams
         num_epochs_budget = self.config.training.num_epochs

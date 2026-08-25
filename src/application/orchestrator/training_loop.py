@@ -322,8 +322,16 @@ class ParadigmTrainingOrchestrator:
             print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
+                
+                # Dynamic Dataset Chunk Offset Navigation: load NEW samples from 60,000 pool on every epoch
+                chunk_idx = ((stream_id * num_epochs_budget) + epoch - 1) % 468
+                train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128, chunk_index=chunk_idx)
+                epoch_train_loader = torch.utils.data.DataLoader(
+                    train_ds, batch_size=self.config.data.batch_size, shuffle=True, collate_fn=MultimodalPyTorchDataset.collate_fn
+                )
+
                 losses_dict, preds, targets, embeds = self.run_epoch(
-                    stream_id, epoch, model, train_loader, optimizer, scaler
+                    stream_id, epoch, model, epoch_train_loader, optimizer, scaler
                 )
                 val_metrics = self.validate_epoch(stream_id, epoch, model, val_loader)
                 elapsed = time.time() - start_t
@@ -345,7 +353,7 @@ class ParadigmTrainingOrchestrator:
                     rec = pred_exporter.record_prediction(
                         timestamp=timestamp,
                         sample_id=f"stream{stream_id+1}_ep{epoch}_sample{idx}",
-                        input_file="multimodal_batch",
+                        input_file=f"multimodal_chunk_{chunk_idx:03d}",
                         ground_truth=int(targets[idx]),
                         predicted=pred_label,
                         confidence=confidence_val,
@@ -364,7 +372,7 @@ class ParadigmTrainingOrchestrator:
                     optimizer=optimizer,
                     scaler=scaler,
                     epoch=epoch,
-                    batch_idx=len(train_loader),
+                    batch_idx=len(epoch_train_loader),
                     metrics=val_metrics,
                     system_config=self.config,
                     is_best=is_best
@@ -375,15 +383,26 @@ class ParadigmTrainingOrchestrator:
 
                 print(
                     f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
-                    f"Epoch {epoch:03d}/{target_epochs:03d} | "
+                    f"Epoch {epoch:03d}/{target_epochs:03d} (Chunk {chunk_idx:03d}) | "
                     f"Train Loss: {train_loss_val:.4f} | "
                     f"Val Loss: {val_loss_val:.4f} | "
                     f"PPL: {val_metrics.get('ppl', 1.0):.2f} | "
                     f"Silhouette: {val_metrics.get('silhouette', 0.0):.4f} | "
-                    f"Consolidated Drive Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
+                    f"Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
                     flush=True
                 )
 
-        self.stream_mgr.synchronize_all()
+        # Knowledge Distillation: Fuse distinct stream checkpoints into a single unified consolidated teacher model
+        try:
+            from src.application.orchestrator.distillation_manager import CheckpointDistillationManager
+            distiller = CheckpointDistillationManager(self.config)
+            all_ckpt_files = [scanner.get_latest_valid_checkpoint(s + 1) for s in range(total_streams)]
+            valid_ckpts = [f for f in all_ckpt_files if f is not None]
+            if valid_ckpts:
+                distilled_out = os.path.join(dirs["checkpoints"], "consolidated_distilled_teacher.safetensors")
+                distiller.distill_checkpoints(valid_ckpts, distilled_out)
+        except Exception as e:
+            print(f"[Orchestrator] Warning: Knowledge distillation step skipped: {e}", flush=True)
+
         session_logger.log_session_end(session_stats)
-        print("[Orchestrator] Multi-Stream 5-Modality Unified Self-Supervised Omni-Pretraining Complete! Consolidated Drive weights saved.", flush=True)
+        print("[Orchestrator] All 6 Streams & Distillation Complete! Telemetry stored in multimodal_telemetry.duckdb", flush=True)

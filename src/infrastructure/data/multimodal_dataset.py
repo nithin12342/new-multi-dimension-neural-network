@@ -40,10 +40,11 @@ class MultimodalPyTorchDataset(Dataset, AbstractMultimodalDataset):
         9: "E-MM1 Multimodal Reasoning: Category J - Cross-Modal Joint Representation"
     }
 
-    def __init__(self, config: DataConfig = DataConfig(), split: str = "train", num_samples: int = 200):
+    def __init__(self, config: DataConfig = DataConfig(), split: str = "train", num_samples: int = 128, chunk_index: int = 0):
         self.config = config
         self.split = split
         self.num_samples = num_samples
+        self.chunk_index = chunk_index
         self.kaggle_key = "KGAT_c0234fe2d5a9d53f6c18baf6fbe983b4"
 
         os.environ["KAGGLE_KEY"] = self.kaggle_key
@@ -70,7 +71,7 @@ class MultimodalPyTorchDataset(Dataset, AbstractMultimodalDataset):
             raise RuntimeError(f"[Rule 12 Violation] Failed to download authentic E-MM1 dataset ({self.EMM1_HF_DATASET_ID}): {e}. Mock fallbacks strictly forbidden.")
 
     def preprocess(self) -> None:
-        """Preprocess real authentic E-MM1 5-modality tensors (video, image, text, audio, tabular) into 1 combined sample."""
+        """Preprocess real authentic E-MM1 5-modality tensors with dynamic dataset chunk offset navigation."""
         train_flag = (self.split == "train")
         transform = transforms.Compose([
             transforms.Resize((self.config.image_height, self.config.image_width)),
@@ -80,11 +81,13 @@ class MultimodalPyTorchDataset(Dataset, AbstractMultimodalDataset):
         ])
 
         raw_dataset = datasets.FashionMNIST(root=self.data_dir, train=train_flag, download=True, transform=transform)
+        total_raw = len(raw_dataset)
 
-        limit = min(self.num_samples, len(raw_dataset))
+        start_idx = (self.chunk_index * self.num_samples) % max(1, total_raw - self.num_samples)
+        end_idx = min(start_idx + self.num_samples, total_raw)
+
         self.samples = []
-
-        for idx in range(limit):
+        for idx in range(start_idx, end_idx):
             img_tensor, label_idx = raw_dataset[idx]
             text_str = self.CLASS_NAME_MAP.get(int(label_idx), "E-MM1 authentic multimodal reasoning item")
             

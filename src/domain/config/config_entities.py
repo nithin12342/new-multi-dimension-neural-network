@@ -37,6 +37,8 @@ class DataConfig:
     image_height: int = 224
     image_width: int = 224
     max_text_len: int = 128
+    chunk_size: int = 128
+    use_chunk_indexing: bool = True
 
 @dataclass(frozen=True)
 class PathConfig:

@@ -22,6 +22,8 @@ from src.domain.loss.loss_functions import (
     InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss,
     CrossEntropyParadigmLoss, DECKLRegLoss
 )
+from src.domain.model.matryoshka_suite import MultimodalMatryoshkaSuite
+from src.domain.loss.matryoshka_loss import MatryoshkaIntegratedDistillationLoss
 from src.infrastructure.storage.drive_manager import GoogleDriveManager
 from src.infrastructure.data.multimodal_dataset import MultimodalPyTorchDataset
 from src.infrastructure.metrics.metric_computer import ThirtySevenMetricComputer
@@ -97,9 +99,20 @@ class ParadigmTrainingOrchestrator:
         self.serializer = CheckpointSerializer(system_config.path)
         self.metric_computer = ThirtySevenMetricComputer()
 
-    def create_models(self) -> List[MultimodalNFMNet]:
-        """Instantiate 6 independent MultimodalNFMNet instances."""
-        return [MultimodalNFMNet(self.config) for _ in range(self.config.training.num_streams)]
+    def create_models(self) -> List[nn.Module]:
+        """Instantiate 6 independent MultimodalMatryoshkaSuite multi-exit instances per Godey & Artzi (Cornell 2026)."""
+        m_cfg = self.config.model
+        return [
+            MultimodalMatryoshkaSuite(
+                embed_dim=m_cfg.embed_dim,
+                tile_dim=m_cfg.tile_dim,
+                chebyshev_order=m_cfg.chebyshev_order,
+                vocab_size=m_cfg.vocab_size,
+                num_classes=m_cfg.num_classes,
+                num_exits=3
+            )
+            for _ in range(self.config.training.num_streams)
+        ]
 
     def run_epoch(
         self,
@@ -138,11 +151,18 @@ class ParadigmTrainingOrchestrator:
             optimizer.zero_grad()
 
             # View 1: Complete 5-Modality Pass
-            outputs1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            res1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            if isinstance(res1, list):
+                outputs1 = res1[-1] # Master Exit (Exit 3)
+                exits1 = res1
+            else:
+                outputs1 = res1
+                exits1 = [res1]
 
             # View 2: Cross-Modal Augmented Pass (pixel-shifted image creates distinct visual features)
             x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-            outputs2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            outputs2 = res2[-1] if isinstance(res2, list) else res2
 
             z_proj1 = outputs1["z_proj"]
             z_proj2 = outputs2["z_proj"]
@@ -220,9 +240,12 @@ class ParadigmTrainingOrchestrator:
                 targets = batch["label"].to(device)
 
                 # Validation View Augmentation for dynamic contrastive metric
-                outputs1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+                res1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+                outputs1 = res1[-1] if isinstance(res1, list) else res1
+
                 x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-                outputs2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+                res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+                outputs2 = res2[-1] if isinstance(res2, list) else res2
 
                 loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(outputs1["z_proj"], outputs2["z_proj"])
 

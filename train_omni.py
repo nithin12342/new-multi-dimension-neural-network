@@ -7,7 +7,8 @@ Responsibility: launch end-to-end 5-modality self-supervised omni-pretraining pi
 import os
 import sys
 
-# Add project root directory to Python path
+# Add project root directory to Python path and set PyTorch CUDA memory allocator flag
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)

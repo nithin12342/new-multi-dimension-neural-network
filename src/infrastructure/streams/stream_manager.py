@@ -24,7 +24,7 @@ class SixStreamManager:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def initialize_streams(self, models: List[torch.nn.Module]) -> None:
-        """Initialize 6 isolated CUDA streams, AdamW optimizers, and GradScalers."""
+        """Initialize 6 isolated CUDA streams without pinning all models to GPU memory simultaneously."""
         assert len(models) == self.num_streams, f"Expected {self.num_streams} models, got {len(models)}"
 
         self.streams.clear()
@@ -32,25 +32,38 @@ class SixStreamManager:
         self.optimizers.clear()
 
         for i, model in enumerate(models):
-            model.to(self.device)
-            # 1. Create CUDA stream if CUDA available
+            # Keep model on CPU until its active stream loop runs to preserve VRAM
+            model.to("cpu")
+
             if torch.cuda.is_available():
                 stream = torch.cuda.Stream()
             else:
                 stream = None
             self.streams.append(stream)
 
-            # 2. Create independent AdamW optimizer per stream model
-            opt = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
-            self.optimizers.append(opt)
+            # Lazy placeholder for optimizer and scaler (instantiated when stream becomes active)
+            self.optimizers.append(None)
 
-            # 3. Create independent AMP GradScaler per stream
             enabled = self.config.use_amp and torch.cuda.is_available()
             try:
                 scaler = torch.amp.GradScaler('cuda', enabled=enabled)
             except (AttributeError, TypeError):
                 scaler = torch.cuda.amp.GradScaler(enabled=enabled)
             self.scalers.append(scaler)
+
+    def prepare_active_stream(self, stream_id: int, model: torch.nn.Module) -> torch.optim.Optimizer:
+        """Move active stream model to GPU VRAM and create active AdamW optimizer."""
+        model.to(self.device)
+        opt = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
+        self.optimizers[stream_id] = opt
+        return opt
+
+    def cleanup_completed_stream(self, stream_id: int, model: torch.nn.Module) -> None:
+        """Move completed stream model back to CPU and release GPU VRAM."""
+        model.to("cpu")
+        self.optimizers[stream_id] = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def get_stream_context(self, stream_id: int):
         """Return CUDA stream for specified stream index (0 to 5)."""

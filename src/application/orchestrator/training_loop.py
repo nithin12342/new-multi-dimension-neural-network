@@ -311,7 +311,7 @@ class ParadigmTrainingOrchestrator:
 
         for stream_id in range(total_streams):
             model = models[stream_id]
-            optimizer = self.stream_mgr.optimizers[stream_id]
+            optimizer = self.stream_mgr.prepare_active_stream(stream_id, model)
             scaler = self.stream_mgr.scalers[stream_id]
             paradigm = self.config.training.stream_paradigms[stream_id]
 
@@ -448,6 +448,9 @@ class ParadigmTrainingOrchestrator:
                     f"Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
                     flush=True
                 )
+
+            # Move completed stream model back to CPU and purge VRAM cache
+            self.stream_mgr.cleanup_completed_stream(stream_id, model)
 
         # Knowledge Distillation: Fuse distinct stream checkpoints into a single unified consolidated teacher model
         try:

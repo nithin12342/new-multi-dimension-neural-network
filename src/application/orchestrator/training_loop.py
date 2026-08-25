@@ -323,10 +323,10 @@ class ParadigmTrainingOrchestrator:
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
                 
-                # Persistent Dataset Traversal Registry: query DuckDB for next UNVISITED chunk index
-                chunk_idx, full_pass_done = pred_exporter.get_next_unvisited_chunk_index(chunk_size=128, total_raw=60000)
+                # Persistent Dataset Traversal Registry: query DuckDB for next sequential chunk index and pass status
+                chunk_idx, full_pass_done, pass_num = pred_exporter.get_next_unvisited_chunk_index(chunk_size=128, total_raw=60000)
                 if full_pass_done:
-                    print(f"  [Traversal Registry] COMPLETE 100% DATASET PASS FINISHED across 60,000 samples! Starting Pass 2 at Chunk {chunk_idx:03d}...", flush=True)
+                    print(f"  [Traversal Registry] COMPLETE 100% DATASET PASS {pass_num-1} FINISHED across 60,000 samples! Starting Pass {pass_num} at Chunk {chunk_idx:03d}...", flush=True)
 
                 train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128, chunk_index=chunk_idx)
                 epoch_train_loader = torch.utils.data.DataLoader(

@@ -95,28 +95,27 @@ class PredictionLogExporter:
         except Exception as e:
             print(f"[DuckDB Logger] Warning initializing consolidated schema: {e}", flush=True)
 
-    def get_next_unvisited_chunk_index(self, chunk_size: int = 128, total_raw: int = 60000) -> Tuple[int, bool]:
+    def get_next_unvisited_chunk_index(self, chunk_size: int = 128, total_raw: int = 60000) -> Tuple[int, bool, int]:
         """
-        Query DuckDB dataset_traversal_history to find the NEXT UNVISITED dataset chunk index.
-        Guarantees ZERO sample reuse until a 100% complete pass from index 0 to total_raw is finished!
+        Query DuckDB dataset_traversal_history to find the NEXT dataset chunk index.
+        Calculates exact current pass number and returns (chunk_index, just_completed_pass, pass_number).
+        Guarantees dataset traversal progresses sequentially through Chunk 000, 001, ..., max_chunks-1 per pass!
         """
         try:
             import duckdb # type: ignore
             con = duckdb.connect(self.db_path, read_only=False)
-            res = con.execute("SELECT chunk_index FROM dataset_traversal_history").fetchall()
-            visited_chunks = set(r[0] for r in res) if res else set()
+            res = con.execute("SELECT COUNT(*) FROM dataset_traversal_history").fetchone()
+            total_logged = res[0] if res else 0
             con.close()
 
-            max_chunks = max(1, total_raw // chunk_size)
-            # Find first unvisited chunk in order 0, 1, 2 ... max_chunks-1
-            for idx in range(max_chunks):
-                if idx not in visited_chunks:
-                    return idx, False
+            max_chunks = max(1, total_raw // chunk_size) # 468 chunks for 60,000 samples @ 128 batch size
+            current_chunk_idx = total_logged % max_chunks
+            pass_number = (total_logged // max_chunks) + 1
+            just_completed_pass = (total_logged > 0) and (current_chunk_idx == 0)
 
-            # If all chunks 0..max_chunks-1 have been visited, a complete pass is finished!
-            return 0, True
+            return current_chunk_idx, just_completed_pass, pass_number
         except Exception as e:
-            return 0, False
+            return 0, False, 1
 
     def log_traversal_chunk(
         self,

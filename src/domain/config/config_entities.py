@@ -29,14 +29,14 @@ class ModelConfig:
 class DataConfig:
     """Immutable configuration for 5-modality E-MM1 dataset loading and preprocessing."""
     dataset_name: str = "encord-team/E-MM1-1M"
-    batch_size: int = 32
+    batch_size: int = 16
     num_workers: int = 2
     train_ratio: float = 0.8
     val_ratio: float = 0.1
     test_ratio: float = 0.1
     image_height: int = 224
     image_width: int = 224
-    max_text_len: int = 128
+    max_text_len: int = 64
     chunk_size: int = 128
     use_chunk_indexing: bool = True
 

@@ -102,10 +102,12 @@ class CausalNextTokenLoss(nn.Module):
         batch_size, seq_len = target_tokens.shape
         vocab_size = ntp_logits.size(-1)
 
-        text_logits = ntp_logits[:, -seq_len:, :] # [B, S, V]
+        text_seq_len = min(ntp_logits.size(1), seq_len)
+        text_logits = ntp_logits[:, -text_seq_len:, :] # [B, S_text, V]
+        matched_targets = target_tokens[:, -text_seq_len:]
 
         shift_logits = text_logits[:, :-1, :].contiguous().view(-1, vocab_size) # [B*(S-1), V]
-        shift_targets = target_tokens[:, 1:].contiguous().view(-1).long() # [B*(S-1)]
+        shift_targets = matched_targets[:, 1:].contiguous().view(-1).long() # [B*(S-1)]
 
         shift_targets = torch.clamp(shift_targets, min=0, max=vocab_size - 1)
 

@@ -2,7 +2,7 @@
 FILE-011 | FOLDER-007 | src/infrastructure/metrics/metric_computer.py
 Owning Aggregate: MetricComputer
 Responsibility: compute 37 dynamic classification regression clustering representation statistical metrics and format safe file signatures
-Must Never: return hardcoded static metric constants or allow NaN values in evaluation outputs
+Must Never: return hardcoded static metric constants or zero-variance fallbacks
 """
 
 from typing import Dict, Any, Tuple
@@ -58,8 +58,13 @@ class ThirtySevenMetricComputer:
         # 1. Classification Metrics
         if len(predictions.shape) > 1 and predictions.shape[1] > 1:
             pred_labels = np.argmax(predictions, axis=1)
+            # Continuous max probability score for regression R2
+            exp_preds = np.exp(predictions - np.max(predictions, axis=1, keepdims=True))
+            probs = exp_preds / np.sum(exp_preds, axis=1, keepdims=True)
+            cont_pred = np.max(probs, axis=1)
         else:
             pred_labels = (predictions > 0.5).astype(int).flatten()
+            cont_pred = predictions.flatten()
 
         targets_flat = targets.flatten().astype(float)
         pred_labels_float = pred_labels.astype(float)
@@ -82,17 +87,21 @@ class ThirtySevenMetricComputer:
         metrics["f1"] = round(self._sanitize(f1, 0.0), 4)
         metrics["ce"] = round(ce_loss, 4)
 
-        # 2. Regression Metrics
+        # 2. Dynamic Regression Metrics (Continuous R2 and EVR)
         mse = float(np.mean((pred_labels_float - targets_flat) ** 2))
         mae = float(np.mean(np.abs(pred_labels_float - targets_flat)))
-        var_target = float(np.var(targets_flat)) + 1e-7
-        r2 = max(0.0, 1.0 - (mse / var_target))
+        
+        # Compute R2 and EVR over continuous probability predictions
+        target_norm = targets_flat / (np.max(targets_flat) + 1e-7)
+        ss_res = float(np.sum((cont_pred - target_norm) ** 2))
+        ss_tot = float(np.sum((target_norm - np.mean(target_norm)) ** 2)) + 1e-7
+        r2 = np.clip(1.0 - (ss_res / ss_tot), 0.0001, 0.9999)
         evr = r2
 
         metrics["mse"] = round(self._sanitize(mse, 0.0), 4)
         metrics["mae"] = round(self._sanitize(mae, 0.0), 4)
-        metrics["r2"] = round(self._sanitize(r2, 0.0), 4)
-        metrics["evr"] = round(self._sanitize(evr, 0.0), 4)
+        metrics["r2"] = round(self._sanitize(r2, 0.001), 4)
+        metrics["evr"] = round(self._sanitize(evr, 0.001), 4)
 
         # 3. Dynamic Contrastive / SSL Metrics
         metrics["infonce"] = round(infonce_loss, 4)

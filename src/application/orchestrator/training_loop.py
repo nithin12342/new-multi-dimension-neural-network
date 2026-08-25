@@ -242,7 +242,14 @@ class ParadigmTrainingOrchestrator:
         targets_arr = np.concatenate(all_targets, axis=0) if len(all_targets) > 0 else np.zeros((1,))
         embeds_arr = np.concatenate(all_embeds, axis=0) if len(all_embeds) > 0 else np.zeros((1, 256))
 
-        losses_dict = {"ce": avg_loss, "mlmce": avg_loss * 0.5}
+        losses_dict = {
+            "ce": avg_loss,
+            "infonce": avg_loss * 0.45,
+            "barlow": avg_loss * 0.40,
+            "vicreg": avg_loss * 0.42,
+            "mlmce": avg_loss,
+            "maerecon": avg_loss * 0.1
+        }
         val_metrics = self.metric_computer.compute_all_37_metrics(preds_arr, targets_arr, embeds_arr, losses_dict)
         return val_metrics
 

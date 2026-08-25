@@ -326,7 +326,23 @@ class ParadigmTrainingOrchestrator:
                 # Verify loaded state dict contains NO NaN or Inf parameters
                 has_nan = any(torch.isnan(p).any() or torch.isinf(p).any() for p in state_dict.values())
                 if not has_nan:
-                    model.load_state_dict(state_dict)
+                    # Remap legacy single-exit keys (core.*, decoder.*) to MultimodalMatryoshkaSuite (core_blocks.*, decoders.*)
+                    if isinstance(model, MultimodalMatryoshkaSuite):
+                        remapped_state = {}
+                        for k, v in state_dict.items():
+                            if k.startswith("core."):
+                                sub_k = k[5:]
+                                for exit_idx in range(3):
+                                    remapped_state[f"core_blocks.{exit_idx}.{sub_k}"] = v
+                            elif k.startswith("decoder."):
+                                sub_k = k[8:]
+                                for exit_idx in range(3):
+                                    remapped_state[f"decoders.{exit_idx}.{sub_k}"] = v
+                            else:
+                                remapped_state[k] = v
+                        state_dict = remapped_state
+
+                    model.load_state_dict(state_dict, strict=False)
                     start_epoch = ckpt_data.get("epoch", 1) + 1
                     best_acc = ckpt_data.get("metrics", {}).get("acc", 0.0)
                     print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Resumed clean checkpoint state from epoch {start_epoch-1}", flush=True)

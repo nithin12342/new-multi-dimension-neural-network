@@ -54,24 +54,37 @@ class SingleNestedMatrixDecoder(nn.Module):
         nn.init.xavier_uniform_(self.cls_projection.weight)
         nn.init.zeros_(self.cls_projection.bias)
 
-    def forward(self, Z_sequence: torch.Tensor, z_riemannian: torch.Tensor, z_bar: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        Z_sequence: torch.Tensor,
+        z_riemannian: torch.Tensor,
+        z_bar: torch.Tensor,
+        compute_heads: bool = True
+    ) -> Dict[str, torch.Tensor]:
         """
         Single Decoder Forward Pass using Nested Matrix Contractions.
         Z_sequence: [B, N_total, 256], z_riemannian: [B, 256], z_bar: [B, 256]
-        Returns unified multi-task dictionary.
+        If compute_heads=False, computes only z_proj to preserve VRAM during secondary view contrastive passes.
         """
-        # 1. Apply Decoder Nested Matrix Polynomial Contraction & Trace Activation to sequence state
-        Z_dec_raw = self.decoder_chebyshev(Z_sequence)
-        Z_dec = self.decoder_trace_gate(Z_dec_raw)
-
-        # 2. Apply Decoder Nested Matrix Contraction & Trace Activation to Riemannian pooled state
+        # 1. Apply Decoder Nested Matrix Contraction & Trace Activation to Riemannian pooled state
         z_riem_seq = z_riemannian.unsqueeze(1) # [B, 1, 256]
         z_riem_contracted = self.decoder_trace_gate(self.decoder_chebyshev(z_riem_seq)).squeeze(1) # [B, 256]
+        z_proj = F.normalize(self.ssl_projection(z_riem_contracted), dim=-1) # [B, 128]
+
+        if not compute_heads:
+            return {
+                "z_bar": z_bar,
+                "z_riemannian": z_riemannian,
+                "z_proj": z_proj
+            }
+
+        # 2. Apply Decoder Nested Matrix Polynomial Contraction & Trace Activation to sequence state
+        Z_dec_raw = self.decoder_chebyshev(Z_sequence)
+        Z_dec = self.decoder_trace_gate(Z_dec_raw)
 
         # 3. Compute Single Unified Decoder Multi-Task Outputs
         ntp_logits = self.ntp_projection(Z_dec)                      # [B, N_total, 30522]
         x_recon = self.recon_projection(Z_dec)                       # [B, N_total, 256]
-        z_proj = F.normalize(self.ssl_projection(z_riem_contracted), dim=-1) # [B, 128]
         logits = self.cls_projection(z_riem_contracted)              # [B, Num_Classes]
         reg_out = self.reg_projection(z_riem_contracted)             # [B, 1]
 
@@ -84,8 +97,8 @@ class SingleNestedMatrixDecoder(nn.Module):
             "z_bar": z_bar,
             "z_riemannian": z_riemannian,
             "z_proj": z_proj,
-            "x_recon": x_recon,
             "ntp_logits": ntp_logits,
+            "x_recon": x_recon,
             "logits": logits,
             "reg_out": reg_out,
             "q_dist": q_dist

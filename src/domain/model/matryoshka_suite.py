@@ -61,10 +61,12 @@ class MultimodalMatryoshkaSuite(nn.Module):
         x_txt: torch.Tensor,
         x_vid: torch.Tensor = None,
         x_aud: torch.Tensor = None,
-        x_tab: torch.Tensor = None
+        x_tab: torch.Tensor = None,
+        compute_heads: bool = True
     ) -> List[Dict[str, torch.Tensor]]:
         """
         Forward Pass for Matryoshka Suite returning output dictionaries for all nested exits.
+        If compute_heads=False, computes only contrastive embeddings z_proj to save VRAM during secondary passes.
         Returns:
             List[Dict[str, torch.Tensor]] containing decoder outputs for Exit 1, Exit 2, ..., Exit M.
         """
@@ -79,7 +81,7 @@ class MultimodalMatryoshkaSuite(nn.Module):
             Z_core, z_riemannian, z_bar = self.core_blocks[m](current_state)
 
             # Step 3: Decode Outputs for Exit m
-            out_m = self.decoders[m](Z_core, z_riemannian, z_bar)
+            out_m = self.decoders[m](Z_core, z_riemannian, z_bar, compute_heads=compute_heads)
             exit_outputs.append(out_m)
 
             # Step 4: Inter-Model Junction to Next Exit m+1 (if applicable)

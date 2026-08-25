@@ -159,9 +159,9 @@ class ParadigmTrainingOrchestrator:
                 outputs1 = res1
                 exits1 = [res1]
 
-            # View 2: Cross-Modal Augmented Pass (pixel-shifted image creates distinct visual features)
+            # View 2: Cross-Modal Augmented Pass (compute_heads=False skips heavy 30522-dim NTP projections to preserve VRAM)
             x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-            res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+            res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab, compute_heads=False)
             outputs2 = res2[-1] if isinstance(res2, list) else res2
 
             z_proj1 = outputs1["z_proj"]
@@ -244,7 +244,7 @@ class ParadigmTrainingOrchestrator:
                 outputs1 = res1[-1] if isinstance(res1, list) else res1
 
                 x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-                res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
+                res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab, compute_heads=False)
                 outputs2 = res2[-1] if isinstance(res2, list) else res2
 
                 loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(outputs1["z_proj"], outputs2["z_proj"])

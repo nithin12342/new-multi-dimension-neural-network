@@ -363,6 +363,7 @@ class ParadigmTrainingOrchestrator:
                 )
 
             print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=target_epochs, eta_min=1e-6)
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
                 
@@ -379,6 +380,7 @@ class ParadigmTrainingOrchestrator:
                 losses_dict, preds, targets, embeds = self.run_epoch(
                     stream_id, epoch, model, epoch_train_loader, optimizer, scaler
                 )
+                scheduler.step()
                 val_metrics = self.validate_epoch(stream_id, epoch, model, val_loader)
                 elapsed = time.time() - start_t
 

@@ -89,7 +89,12 @@ class SingleNestedMatrixDecoder(nn.Module):
         Z_dec_text = Z_dec[:, -text_seq_len:, :]                     # [B, S_text, 256]
         ntp_logits = self.ntp_projection(Z_dec_text)                 # [B, S_text, 30522]
         x_recon = self.recon_projection(Z_dec)                       # [B, N_total, 256]
-        logits = self.cls_projection(z_riem_contracted)              # [B, Num_Classes]
+
+        # Self-Supervised Nearest-Centroid Logits: Cosine similarity to cluster centroids
+        centroids_norm = F.normalize(self.centroids, dim=-1)         # [Num_Clusters, 256]
+        z_riem_norm = F.normalize(z_riem_contracted, dim=-1)           # [B, 256]
+        cluster_logits = (z_riem_norm @ centroids_norm.T) * 10.0     # [B, Num_Clusters]
+        logits = self.cls_projection(z_riem_contracted) + cluster_logits # Dynamically grounded logits
         reg_out = self.reg_projection(z_riem_contracted)             # [B, 1]
 
         # Student's t-distribution soft cluster assignments q_ij

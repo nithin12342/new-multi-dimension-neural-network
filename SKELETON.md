@@ -94,6 +94,10 @@
   text: "STRICT LOCAL EXECUTION RULE: Never execute pretraining runs on local developer PC; training execution is strictly restricted to Google Colab cloud environment to prevent local PC crashes"
   spec_id: SPEC-021
 
+- id: REQ-022
+  text: "Implement Fine-Grained Multimodal Error Localization & Step-Level Targeted Correction Engine across 5 modalities with DuckDB sample_error_localization telemetry export and prefix-preserving rollback support"
+  spec_id: SPEC-022
+
 ---
 
 ## 2. Bounded Contexts & Aggregates
@@ -109,13 +113,16 @@
   - **ModalityTokenizers & GigaTokenizerEngine**
     - invariant: "Projects 5 modalities (Video, Image, Text, Audio, Tabular) into unified sequence D=256 using GigaTokenizer zero-copy SIMD lookup"
     - entities: [GigaTokenizerEngine, VisionPatchTokenizer, VideoSpatiotemporalTokenizer, TextEmbeddingTokenizer, AudioSpectrogramTokenizer, TabularGraphTokenizer, OmniTokenFusion]
+  - **MultimodalErrorLocalizationEngine**
+    - invariant: "Pinpoints exact failure coordinates across 5 modalities (token t*, patch [h*,w*], frame t*, time-frequency [f*,t*]) with prefix rollback"
+    - entities: [MultimodalErrorLocalizationEngine]
   - **Tri-Aggregate Architecture**
     - invariant: "MultimodalNFMNet is composed of CombinedOmniEncoder, FunctionalCoreModel, and SingleNestedMatrixDecoder"
-    - entities: [CombinedOmniEncoder, FunctionalCoreModel, SingleNestedMatrixDecoder]
+    - entities: [CombinedOmniEncoder, FunctionalCoreModel, SingleNestedMatrixDecoder, MultimodalMatryoshkaSuite]
 
 ---
 
-## 3. Implementation Status Matrix (23 Modular DIP Nodes)
+## 3. Implementation Status Matrix (25 Modular DIP Nodes)
 
 | File ID | Folder Path | Owning Aggregate | Single Responsibility (<=7 Words) | Implementation Status |
 |---|---|---|---|---|
@@ -142,3 +149,6 @@
 | **FILE-021** | `src/domain/model/core_model.py` | FunctionalCoreModel | execute chebyshev matrix contractions and poincare chart | ✅ Implemented & Tested |
 | **FILE-022** | `src/domain/model/decoder.py` | SingleNestedMatrixDecoder | project core representations into all outputs using single decoder | ✅ Implemented & Tested |
 | **FILE-023** | `train_omni.py` | MainRunner | entrypoint script for google colab execution | ✅ Implemented & Tested |
+| **FILE-030** | `src/domain/model/matryoshka_suite.py` | MultimodalMatryoshkaSuite | execute nested multi exit 5 modality forward passes | ✅ Implemented & Tested |
+| **FILE-031** | `src/domain/model/error_localization.py` | MultimodalErrorLocalizationEngine | pinpoint exact failure coordinates across 5 modalities with rollback | ✅ Implemented & Tested |
+

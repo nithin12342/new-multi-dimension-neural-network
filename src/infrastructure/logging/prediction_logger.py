@@ -90,8 +90,27 @@ class PredictionLogExporter:
                 )
             """)
 
+            # 4. Fine-Grained Multimodal Error Localization Table
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS sample_error_localization (
+                    timestamp VARCHAR,
+                    epoch INTEGER,
+                    stream_id INTEGER,
+                    sample_id VARCHAR,
+                    overall_status VARCHAR,
+                    text_first_error_step INTEGER,
+                    text_error_token_idx INTEGER,
+                    text_worst_loss DOUBLE,
+                    image_failed_patch_coords VARCHAR,
+                    image_worst_patch_coord VARCHAR,
+                    image_max_residual DOUBLE,
+                    audio_worst_freq_bin INTEGER,
+                    audio_worst_time_bin INTEGER
+                )
+            """)
+
             con.close()
-            print(f"[DuckDB Logger] Consolidated database initialized with traversal registry: {self.db_path}", flush=True)
+            print(f"[DuckDB Logger] Consolidated database initialized with traversal registry & error localization: {self.db_path}", flush=True)
         except Exception as e:
             print(f"[DuckDB Logger] Warning initializing consolidated schema: {e}", flush=True)
 
@@ -276,3 +295,39 @@ class PredictionLogExporter:
             print(f"[DuckDB Logger] Error exporting epoch metrics to {self.db_path}: {e}", flush=True)
 
         return self.db_path
+
+    def export_error_localization_logs(self, records: List[Dict[str, Any]]) -> str:
+        """Appends fine-grained multimodal error localization logs into `sample_error_localization` table."""
+        if not records:
+            return self.db_path
+
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path, read_only=False)
+            rows = [
+                (
+                    r.get("timestamp", ""),
+                    int(r.get("epoch", 0)),
+                    int(r.get("stream_id", 1)),
+                    str(r.get("sample_id", "")),
+                    str(r.get("overall_status", "PASS")),
+                    int(r.get("text_first_error_step", -1)),
+                    int(r.get("text_error_token_idx", -1)),
+                    float(r.get("text_worst_loss", 0.0)),
+                    json.dumps(r.get("image_failed_patch_coords", [])),
+                    json.dumps(r.get("image_worst_patch_coord", [])),
+                    float(r.get("image_max_residual", 0.0)),
+                    int(r.get("audio_worst_freq_bin", -1)),
+                    int(r.get("audio_worst_time_bin", -1))
+                )
+                for r in records
+            ]
+            con.executemany("""
+                INSERT INTO sample_error_localization VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, rows)
+            con.close()
+        except Exception as e:
+            print(f"[DuckDB Logger] Error appending error localization records to {self.db_path}: {e}", flush=True)
+
+        return self.db_path
+

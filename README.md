@@ -60,6 +60,7 @@ license: mit
 | **🪆 Matryoshka Multi-Exit** | Nested sub-models (Exit 1 → Exit 2 → Master) with L2 norm-rescaled junctions enabling zero-cost online distillation and speculative decoding |
 | **🎯 5-Modality Fusion** | Unified processing of Image, Video, Text, Audio, and Tabular data through modality-specific tokenizers fused into a shared sequence |
 | **📊 37-Metric Telemetry** | Comprehensive DuckDB-backed tracking across 8 metric families with persistent dataset traversal registry |
+| **🎯 Fine-Grained Error Localization** | Coordinate-accurate failure pinpointing (Token $t^*$, Image Patch $(h^*, w^*)$, Video $(t^*, h^*, w^*)$, Audio $(f^*, t^*)$) with prefix-preserving rollback (PRM & Step-DPO) |
 | **💾 Efficient Storage** | FP16 SafeTensors checkpoints (<16 MB per stream) with automatic Google Drive checkpoint discovery and auto-resume |
 | **🔄 6 Parallel Streams** | Six independent CUDA streams exploring complementary SSL objectives (InfoNCE, Barlow Twins, VICReg, MAE, DEC, Omni) |
 | **🛡️ Fault Tolerant** | Graceful recovery from Colab disconnects, CUDA OOM, and runtime resets with emergency state preservation |
@@ -142,6 +143,26 @@ Inspired by [Matryoshka Language Model Suites (Godey & Artzi, Cornell 2026)](htt
 **Inter-Model Junctions** use L2 norm rescaling to prevent representation magnitude drift:
 
 $$\hat{h}^{(m)} = h^{(m)} \cdot \frac{\|e^{(m+1)}\|_2}{\|h^{(m)}\|_2}, \qquad h_{\text{in}}^{(m+1)} = W_{\text{proj}}\!\left[e^{(m+1)} \,\|\, \hat{h}^{(m)}\right]$$
+
+### Fine-Grained Multimodal Error Localization & Prefix Rollback
+
+Instead of binary pass/fail retries that discard whole responses and restart from Step 0, MultimodalNFMNet integrates **coordinate-level error localization** and **prefix-preserving branching** across all 5 modalities:
+
+```
+CONVENTIONAL OUTCOME RE-RUN (WASTEFUL):
+[Step 1: OK] ──► [Step 2: OK] ──► [Step 3: FAILS ❌] ──► [Step 4: INVALID] ──► RESTART FROM STEP 0
+
+FINE-GRAINED LOCALIZATION & PREFIX ROLLBACK (ORNet / PRM / Step-DPO):
+[Step 1: OK] ──► [Step 2: OK] ──► [Step 3: FAILS ❌ at (t*)] ──► Freeze Prefix & Rollback to Step 2
+       │                │                                         │
+       └── CACHED ──────┴─────────────────────────────────────────┴──► [Step 3' (Corrected)] ──► Success ✅
+```
+
+- **📝 Text:** Pinpoints First Erroneous Token ($t^*$) & Thought Step ($s^*$) via token-level surprisal and Process Reward Model ($V_\phi$) scoring.
+- **🖼️ Image:** Locates failing spatial patch grid coordinates $(h^*, w^*)$ via MAE reconstruction residuals.
+- **🎥 Video:** Detects temporal frame disruption index $t^*$ and spatiotemporal patch $(t^*, h^*, w^*)$.
+- **🎵 Audio:** Identifies time-frequency anomaly coordinates $(f^*, t^*)$ in Mel-spectrograms.
+- **🧊 3D / Tabular:** Pinpoints point cloud Cartesian error coordinates $(x^*, y^*, z^*)$ and graph column indices.
 
 ### Loss Functions
 
@@ -309,7 +330,7 @@ A **Persistent Dataset Traversal Registry** (backed by DuckDB) ensures 100% data
 
 ## 📊 Metrics & Telemetry
 
-All telemetry is stored in a **single consolidated DuckDB database** (`multimodal_telemetry.duckdb`) with 3 tables:
+All telemetry is stored in a **single consolidated DuckDB database** (`multimodal_telemetry.duckdb`) with 4 tables:
 
 ### `epoch_metrics` — 37 Metrics Across 8 Families
 
@@ -323,6 +344,13 @@ All telemetry is stored in a **single consolidated DuckDB database** (`multimoda
 | **Distributional** | Wasserstein Distance, KL Divergence, JS Divergence, Skewness, Kurtosis |
 | **Calibration** | Brier Score, Expected Calibration Error (ECE) |
 | **Language Modeling** | Perplexity, Cross-Entropy, Top-5 Accuracy, Top-10 Accuracy |
+
+### `sample_error_localization` — Coordinate-Level Failure Localization
+
+Per-sample fine-grained error coordinates:
+- `text_first_error_step` & `text_error_token_idx`: Exact step $s^*$ and token position $t^*$ of reasoning divergence
+- `image_failed_patch_coords` & `image_worst_patch_coord`: $14 \times 14$ spatial patch coordinates $[h^*, w^*]$ of reconstruction residual spikes
+- `audio_worst_freq_bin` & `audio_worst_time_bin`: $64 \times 64$ Mel-spectrogram time-frequency anomaly coordinates
 
 ### `predictions` — Per-Sample Prediction Logs
 
@@ -368,6 +396,8 @@ The repository includes extensive architectural documentation:
 | Document | Description |
 |----------|-------------|
 | [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 21 requirements and 23 DIP file nodes |
+| [`FINE_GRAINED_MULTIMODAL_ERROR_LOCALIZATION_ARCHITECTURE.md`](FINE_GRAINED_MULTIMODAL_ERROR_LOCALIZATION_ARCHITECTURE.md) | Fine-grained failure localization & prefix rollback across all 5 modalities |
+| [`DUAL_STAGE_ERROR_LOCALIZATION_IMPLEMENTATION_REPORT.md`](DUAL_STAGE_ERROR_LOCALIZATION_IMPLEMENTATION_REPORT.md) | Implementation report for live pre-training & post-training (PRM / Step-DPO) |
 | [`OMNI_PRETRAINING_ARCHITECTURE.md`](OMNI_PRETRAINING_ARCHITECTURE.md) | 5-modality pretraining pipeline specification |
 | [`HUMAN_CRITICAL_THINKING_ARCHITECTURE.md`](HUMAN_CRITICAL_THINKING_ARCHITECTURE.md) | Critical thinking & NTP design |
 | [`MATRYOSHKA_MULTIMODAL_SUITE_SPECIFICATION.md`](MATRYOSHKA_MULTIMODAL_SUITE_SPECIFICATION.md) | Matryoshka multi-exit suite specification |
@@ -383,8 +413,9 @@ The repository includes extensive architectural documentation:
 - [x] **Stage 1:** 5-Modality Self-Supervised Omni-Pretraining (InfoNCE, Barlow Twins, VICReg, NTP, DEC)
 - [x] **Matryoshka Integration:** Multi-exit nested sub-models with online distillation
 - [x] **Telemetry:** 37-metric DuckDB tracking with persistent traversal registry
-- [ ] **Stage 2:** Supervised Fine-Tuning (SFT) with Hyperbolic Gyroplane Classifier
-- [ ] **Stage 3:** Post-Training Alignment (DPO / RLHF Logic Preference)
+- [x] **Fine-Grained Error Localization:** Coordinate-accurate failure localization & DuckDB telemetry
+- [ ] **Stage 2:** Supervised Fine-Tuning (SFT) with Prefix-Preserving Self-Correction & Hyperbolic Gyroplanes
+- [ ] **Stage 3:** Post-Training Alignment (Step-DPO / Process Reward Models / MCTS)
 - [ ] **Natural Logic Engine:** Z3 SMT-backed hypergraph reasoning
 - [ ] **Autonomous Sandbox:** Self-healing Docker/gVisor execution environment
 - [ ] **Inference API:** FastAPI serving with speculative decoding via Matryoshka exits

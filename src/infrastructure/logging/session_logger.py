@@ -1,7 +1,7 @@
 """
 FILE-015 | FOLDER-010 | src/infrastructure/logging/session_logger.py
 Owning Aggregate: SessionLogger
-Responsibility: profile hardware stats and log session telemetry in single consolidated duckdb database
+Responsibility: profile hardware stats and log continuous periodic hardware telemetry in single consolidated duckdb database
 Must Never: block training execution during logging disk writes
 """
 
@@ -11,10 +11,10 @@ import time
 import json
 import torch
 import psutil
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class SessionTelemetryLogger:
-    """Detailed Session & Hardware Utilization Logger storing telemetry in single `multimodal_telemetry.duckdb` database."""
+    """Detailed Session & Continuous Periodic Hardware Telemetry Logger storing telemetry in `multimodal_telemetry.duckdb`."""
 
     def __init__(self, logs_dir: str):
         self.logs_dir = logs_dir
@@ -23,10 +23,12 @@ class SessionTelemetryLogger:
         self._init_db_schema()
 
     def _init_db_schema(self) -> None:
-        """Initialize DuckDB table schema for session telemetry in single consolidated database."""
+        """Initialize DuckDB table schemas for session summary and continuous hardware time-series telemetry."""
         try:
             import duckdb # type: ignore
             con = duckdb.connect(self.db_path, read_only=False)
+            
+            # 1. Session Summary Table
             con.execute("""
                 CREATE TABLE IF NOT EXISTS session_telemetry (
                     session_id VARCHAR,
@@ -43,13 +45,30 @@ class SessionTelemetryLogger:
                     ram_used_gb DOUBLE
                 )
             """)
+
+            # 2. Periodic Hardware Telemetry Time-Series Table
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS hardware_telemetry_timeseries (
+                    timestamp VARCHAR,
+                    stream_id INTEGER,
+                    epoch INTEGER,
+                    elapsed_sec DOUBLE,
+                    gpu_vram_allocated_mb DOUBLE,
+                    gpu_vram_reserved_mb DOUBLE,
+                    gpu_vram_peak_mb DOUBLE,
+                    cpu_percent DOUBLE,
+                    ram_used_gb DOUBLE,
+                    ram_percent DOUBLE
+                )
+            """)
+
             con.close()
-            print(f"[DuckDB Logger] Consolidated session telemetry initialized: {self.db_path}", flush=True)
+            print(f"[DuckDB Logger] Consolidated session & hardware time-series telemetry initialized: {self.db_path}", flush=True)
         except Exception as e:
             print(f"[DuckDB Logger] Warning initializing session telemetry schema at {self.db_path}: {e}", flush=True)
 
     def log_session_start(self) -> Dict[str, Any]:
-        """Record session start time, GPU specs, CUDA/PyTorch versions, and memory state into DuckDB."""
+        """Record session start time, GPU specs, CUDA/PyTorch versions, and initial memory state into DuckDB."""
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
         cuda_ver = torch.version.cuda if torch.cuda.is_available() else "N/A"
@@ -94,14 +113,43 @@ class SessionTelemetryLogger:
     def profile_hardware(self) -> Dict[str, float]:
         """Query real-time CPU, RAM, GPU memory, and GPU utilization metrics."""
         stats = {
-            "cpu_percent": psutil.cpu_percent(),
-            "ram_used_gb": round(psutil.virtual_memory().used / (1024 ** 3), 2),
-            "ram_percent": psutil.virtual_memory().percent
+            "cpu_percent": float(psutil.cpu_percent()),
+            "ram_used_gb": round(float(psutil.virtual_memory().used / (1024 ** 3)), 2),
+            "ram_percent": float(psutil.virtual_memory().percent),
+            "gpu_vram_allocated_mb": 0.0,
+            "gpu_vram_reserved_mb": 0.0,
+            "gpu_vram_peak_mb": 0.0
         }
         if torch.cuda.is_available():
-            stats["gpu_mem_allocated_mb"] = round(torch.cuda.memory_allocated(0) / (1024 ** 2), 2)
-            stats["gpu_mem_reserved_mb"] = round(torch.cuda.memory_reserved(0) / (1024 ** 2), 2)
+            stats["gpu_vram_allocated_mb"] = round(float(torch.cuda.memory_allocated(0) / (1024 ** 2)), 2)
+            stats["gpu_vram_reserved_mb"] = round(float(torch.cuda.memory_reserved(0) / (1024 ** 2)), 2)
+            stats["gpu_vram_peak_mb"] = round(float(torch.cuda.max_memory_allocated(0) / (1024 ** 2)), 2)
         return stats
+
+    def log_periodic_hardware(self, stream_id: int, epoch: int, elapsed_sec: float) -> None:
+        """Record real-time instantaneous snapshot of GPU, CPU, and RAM metrics per time period / epoch."""
+        stats = self.profile_hardware()
+        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path, read_only=False)
+            con.execute("""
+                INSERT INTO hardware_telemetry_timeseries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                timestamp,
+                int(stream_id),
+                int(epoch),
+                round(float(elapsed_sec), 2),
+                stats["gpu_vram_allocated_mb"],
+                stats["gpu_vram_reserved_mb"],
+                stats["gpu_vram_peak_mb"],
+                stats["cpu_percent"],
+                stats["ram_used_gb"],
+                stats["ram_percent"]
+            ))
+            con.close()
+        except Exception as e:
+            print(f"[DuckDB Logger] Error logging periodic hardware telemetry: {e}", flush=True)
 
     def log_session_end(self, session_start_stats: Dict[str, Any]) -> None:
         """Record final session summary and update DuckDB session record."""

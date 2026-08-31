@@ -98,6 +98,10 @@
   text: "Implement Fine-Grained Multimodal Error Localization & Step-Level Targeted Correction Engine across 5 modalities with DuckDB sample_error_localization telemetry export and prefix-preserving rollback support"
   spec_id: SPEC-022
 
+- id: REQ-023
+  text: "Implement Continuous Periodic Time-Series Hardware Telemetry (hardware_telemetry_timeseries in DuckDB) and Poincaré Gyroplane Hyperbolic Geodesic Classification Head"
+  spec_id: SPEC-023
+
 ---
 
 ## 2. Bounded Contexts & Aggregates

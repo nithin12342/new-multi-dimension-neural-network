@@ -1,12 +1,13 @@
 """
 FILE-005 | FOLDER-002 | src/domain/model/riemannian.py
 Owning Aggregate: ConformalRiemannianChart
-Responsibility: map features to poincaré ball conformal charts
+Responsibility: map features to poincaré ball conformal charts and evaluate hyperbolic gyroplane classification
 Must Never: allow feature norms to exceed unit disk boundary
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class PoincareConformalChart(nn.Module):
     """
@@ -64,3 +65,43 @@ class PoincareConformalChart(nn.Module):
         x_proj = self.project_to_ball(x)
         scale = self.conformal_scale(x_proj)
         return x_proj * scale
+
+
+class PoincareGyroplaneClassifier(nn.Module):
+    """
+    Hyperbolic Gyroplane Classifier operating on Poincaré Ball representations.
+    Computes hyperbolic geodesic distance d_D^n(z, mu_k) to K trainable Riemannian centroids mu_k in D^n,
+    producing calibrated logits Logits_k = - d_D^n(z, mu_k) / tau.
+    Eliminates Euclidean linear metric distortion and fixes classification geometry collapse.
+    """
+    def __init__(self, embed_dim: int = 256, num_classes: int = 10, curvature: float = 1.0, temperature: float = 0.2):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_classes = num_classes
+        self.curvature = curvature
+        self.temperature = temperature
+        self.chart = PoincareConformalChart(c=curvature)
+        
+        # Trainable Riemannian cluster centroids mu_k initialized inside unit ball
+        raw_centroids = torch.randn(num_classes, embed_dim) * 0.05
+        self.centroids = nn.Parameter(raw_centroids)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        z: [B, embed_dim] -> returns calibrated logits [B, num_classes] based on Hyperbolic Geodesic Distance.
+        """
+        z_ball = self.chart.project_to_ball(z)             # [B, embed_dim]
+        c_ball = self.chart.project_to_ball(self.centroids) # [K, embed_dim]
+        
+        B = z_ball.shape[0]
+        K = c_ball.shape[0]
+        
+        z_exp = z_ball.unsqueeze(1).expand(B, K, -1)
+        c_exp = c_ball.unsqueeze(0).expand(B, K, -1)
+        
+        # Pairwise Hyperbolic Geodesic distance: [B, K]
+        dist = self.chart.geodesic_distance(z_exp, c_exp).squeeze(-1)
+        
+        # Negative temperature-scaled distance as calibrated class logits
+        logits = -dist / max(1e-4, self.temperature)
+        return logits

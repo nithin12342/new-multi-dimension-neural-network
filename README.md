@@ -330,7 +330,7 @@ A **Persistent Dataset Traversal Registry** (backed by DuckDB) ensures 100% data
 
 ## 📊 Metrics & Telemetry
 
-All telemetry is stored in a **single consolidated DuckDB database** (`multimodal_telemetry.duckdb`) with 4 tables:
+All telemetry is stored in a **single consolidated DuckDB database** (`multimodal_telemetry.duckdb`) with 5 tables:
 
 ### `epoch_metrics` — 37 Metrics Across 8 Families
 
@@ -356,9 +356,15 @@ Per-sample fine-grained error coordinates:
 
 Per-epoch sample-level predictions with softmax probabilities, predicted vs. true class, and sample IDs.
 
-### `session_telemetry` — Hardware Profiling
+### `hardware_telemetry_timeseries` — Continuous Periodic Hardware Profiling
 
-GPU name, VRAM utilization, CPU cores, RAM usage, PyTorch/CUDA versions, and session timestamps.
+Real-time per-epoch system metrics:
+- `gpu_vram_allocated_mb`, `gpu_vram_reserved_mb`, `gpu_vram_peak_mb`
+- `cpu_percent`, `ram_used_gb`, `ram_percent`, `elapsed_sec`
+
+### `session_telemetry` — Hardware & Environment Profiling
+
+GPU name, VRAM total capacity, CPU cores, RAM total, PyTorch/CUDA versions, and session launch/end timestamps.
 
 ---
 

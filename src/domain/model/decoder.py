@@ -1,7 +1,7 @@
 """
 FILE-022 | FOLDER-002 | src/domain/model/decoder.py
 Owning Aggregate: SingleNestedMatrixDecoder
-Responsibility: project lower-dimensional core representations into all multi-task outputs using a single nested matrix decoder
+Responsibility: project lower-dimensional core representations into all multi-task outputs using a single nested matrix decoder with Poincaré Gyroplane classification
 Must Never: bypass nested matrix polynomial contractions during decoding
 """
 
@@ -12,12 +12,13 @@ from typing import Dict, Any
 
 from src.domain.model.chebyshev import ChebyshevFunctionalBlock
 from src.domain.model.trace_activation import TraceInvariantGate
+from src.domain.model.riemannian import PoincareGyroplaneClassifier
 
 class SingleNestedMatrixDecoder(nn.Module):
     """
     Single Unified Nested Matrix Decoder Aggregate.
     Combines all multi-task decoder head functionalities (Next-Token Prediction LM, Masked Reconstruction,
-    SSL Contrastive Projection, Supervised Classification, Supervised Regression, DEC Soft Clustering)
+    SSL Contrastive Projection, Poincaré Gyroplane Supervised Classification, Supervised Regression, DEC Soft Clustering)
     into ONE single decoder engine.
     Uses Order-2 Chebyshev Functional Nested Matrix Contractions (16x16 tiles) + Trace Scaling to map lower-dimensional
     manifold representations back into target output spaces.
@@ -46,11 +47,12 @@ class SingleNestedMatrixDecoder(nn.Module):
         self.ntp_projection = nn.Linear(embed_dim, vocab_size)       # Next-Token Thought LM Logits
         self.recon_projection = nn.Linear(embed_dim, embed_dim)      # Masked Autoencoder Reconstruction
         self.ssl_projection = nn.Linear(embed_dim, proj_dim)         # L2-Normalized Contrastive Projection
-        self.cls_projection = nn.Linear(embed_dim, num_classes)      # Classification Logits
+        self.gyroplane = PoincareGyroplaneClassifier(embed_dim=embed_dim, num_classes=num_classes) # Hyperbolic Gyroplane Head
+        self.cls_projection = nn.Linear(embed_dim, num_classes)      # Auxiliary Linear Classification Logits
         self.reg_projection = nn.Linear(embed_dim, 1)                # Regression Scalar
         self.centroids = nn.Parameter(torch.randn(num_clusters, embed_dim) * 0.1) # DEC Cluster Centroids
 
-        # Anti-Mode-Collapse Initializer: Xavier Uniform on classification projection head to eliminate index 8 attractor bias
+        # Anti-Mode-Collapse Initializer: Xavier Uniform on classification projection head
         nn.init.xavier_uniform_(self.cls_projection.weight)
         nn.init.zeros_(self.cls_projection.bias)
 
@@ -83,18 +85,15 @@ class SingleNestedMatrixDecoder(nn.Module):
         Z_dec = self.decoder_trace_gate(Z_dec_raw)
 
         # 3. Compute Single Unified Decoder Multi-Task Outputs
-        # Source-Level Root Fix: Slice sequence tensor to the text token segment (last S positions) BEFORE 30522-dim projection
-        # This reduces NTP projection memory from [B, 228, 30522] (2.68 GB) down to [B, 64, 30522] (0.24 GB) — a 91% Memory Reduction!
+        # Sliced sequence tensor to the text token segment (last S positions) BEFORE 30522-dim projection
         text_seq_len = min(64, Z_dec.size(1))
         Z_dec_text = Z_dec[:, -text_seq_len:, :]                     # [B, S_text, 256]
         ntp_logits = self.ntp_projection(Z_dec_text)                 # [B, S_text, 30522]
         x_recon = self.recon_projection(Z_dec)                       # [B, N_total, 256]
 
-        # Self-Supervised Nearest-Centroid Logits: Cosine similarity to cluster centroids
-        centroids_norm = F.normalize(self.centroids, dim=-1)         # [Num_Clusters, 256]
-        z_riem_norm = F.normalize(z_riem_contracted, dim=-1)           # [B, 256]
-        cluster_logits = (z_riem_norm @ centroids_norm.T) * 10.0     # [B, Num_Clusters]
-        logits = self.cls_projection(z_riem_contracted) + cluster_logits # Dynamically grounded logits
+        # Poincaré Hyperbolic Gyroplane Classification Logits (eliminates geometry mismatch & class collapse)
+        gyro_logits = self.gyroplane(z_riem_contracted)              # [B, Num_Classes]
+        logits = gyro_logits + self.cls_projection(z_riem_contracted) * 0.1
         reg_out = self.reg_projection(z_riem_contracted)             # [B, 1]
 
         # Student's t-distribution soft cluster assignments q_ij

@@ -401,7 +401,9 @@ The repository includes extensive architectural documentation:
 
 | Document | Description |
 |----------|-------------|
-| [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 21 requirements and 23 DIP file nodes |
+| [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 23 requirements and 25 DIP file nodes |
+| [`POINCARE_GYROPLANE_AND_PERIODIC_TELEMETRY_SPECIFICATION.md`](POINCARE_GYROPLANE_AND_PERIODIC_TELEMETRY_SPECIFICATION.md) | Poincaré Gyroplane Geodesic Classifier & Periodic Hardware Telemetry |
+| [`DUCKDB_TIMESTAMPED_ERROR_LOCALIZATION_ANALYSIS.md`](DUCKDB_TIMESTAMPED_ERROR_LOCALIZATION_ANALYSIS.md) | Timestamped DuckDB telemetry audit & 4-step diagnostic workflow |
 | [`FINE_GRAINED_MULTIMODAL_ERROR_LOCALIZATION_ARCHITECTURE.md`](FINE_GRAINED_MULTIMODAL_ERROR_LOCALIZATION_ARCHITECTURE.md) | Fine-grained failure localization & prefix rollback across all 5 modalities |
 | [`DUAL_STAGE_ERROR_LOCALIZATION_IMPLEMENTATION_REPORT.md`](DUAL_STAGE_ERROR_LOCALIZATION_IMPLEMENTATION_REPORT.md) | Implementation report for live pre-training & post-training (PRM / Step-DPO) |
 | [`OMNI_PRETRAINING_ARCHITECTURE.md`](OMNI_PRETRAINING_ARCHITECTURE.md) | 5-modality pretraining pipeline specification |

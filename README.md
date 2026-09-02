@@ -402,6 +402,7 @@ The repository includes extensive architectural documentation:
 | Document | Description |
 |----------|-------------|
 | [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 24 requirements and 25 DIP file nodes |
+| [`COMPREHENSIVE_CODEBASE_OVERHAUL_AND_SYSTEMS_BLUEPRINT.md`](COMPREHENSIVE_CODEBASE_OVERHAUL_AND_SYSTEMS_BLUEPRINT.md) | Razor-Sharp Codebase & Systems Overhaul Blueprint (7 Pillars, Memory Lifecycle, Zero-Lock Telemetry) |
 | [`LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md`](LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md) | Comprehensive Architecture, Telemetry Forensics & Global Multi-Platform Publication Strategy |
 | [`REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md`](REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md) | 4 Forensic Remediation Guards (FP16 clamp, variance hinge, radius clipping, NTP pad mask) |
 | [`ADVERSARIAL_TELEMETRY_DIAGNOSTIC_ANALYSIS.md`](ADVERSARIAL_TELEMETRY_DIAGNOSTIC_ANALYSIS.md) | Forensic DuckDB audit across 25 sessions identifying the 4 core bottlenecks |

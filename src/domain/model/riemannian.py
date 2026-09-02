@@ -1,8 +1,8 @@
 """
 FILE-005 | FOLDER-002 | src/domain/model/riemannian.py
 Owning Aggregate: ConformalRiemannianChart
-Responsibility: map features to poincaré ball conformal charts and evaluate hyperbolic gyroplane classification
-Must Never: allow feature norms to exceed unit disk boundary
+Responsibility: map features to poincaré ball conformal charts with strict boundary saturation clipping (||x|| <= 1 - 1e-4) and evaluate hyperbolic gyroplane classification
+Must Never: allow feature norms to exceed unit disk boundary or conformal scale to blow up to infinity
 """
 
 import torch
@@ -12,15 +12,16 @@ import torch.nn.functional as F
 class PoincareConformalChart(nn.Module):
     """
     Metric Deformation via Conformal Riemannian Charting on the Poincaré Ball manifold.
-    Enforces norm ||x|| < 1, computes scale factor lambda_x, geodesic distance, and Möbius addition.
+    Enforces strict norm clipping ||x|| <= 1 - eps (eps=1e-4) to prevent boundary saturation
+    where conformal metric factor lambda_x -> infinity causing loss/gradient blowouts.
     """
-    def __init__(self, c: float = 1.0, eps: float = 1e-5):
+    def __init__(self, c: float = 1.0, eps: float = 1e-4):
         super().__init__()
         self.c = c
         self.eps = eps
 
     def project_to_ball(self, x: torch.Tensor) -> torch.Tensor:
-        """Enforce hyperbolic constraint ||x|| < 1 - eps."""
+        """Enforce strict hyperbolic constraint ||x|| <= 1 - eps (boundary saturation defense)."""
         norm = torch.norm(x, p=2, dim=-1, keepdim=True)
         max_norm = 1.0 - self.eps
         cond = norm > max_norm
@@ -28,40 +29,50 @@ class PoincareConformalChart(nn.Module):
         return torch.where(cond, projected, x)
 
     def conformal_scale(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute conformal scale factor lambda_x = 2 / (1 - c * ||x||^2)."""
+        """
+        Compute conformal scale factor lambda_x = 2 / (1 - c * ||x||^2).
+        Strictly clamped to <= 1000.0 to prevent infinite gradients.
+        """
         x_proj = self.project_to_ball(x)
         norm_sq = torch.sum(x_proj ** 2, dim=-1, keepdim=True)
+        # Defense 3: Bound norm_sq strictly to 1.0 - eps to avoid zero denominator
+        norm_sq = torch.clamp(norm_sq, max=1.0 - self.eps)
         lambda_x = 2.0 / (1.0 - self.c * norm_sq + 1e-7)
-        return lambda_x
+        return torch.clamp(lambda_x, min=1.0, max=1000.0)
 
     def mobius_addition(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute Möbius vector addition x (+) c y."""
+        """Compute Möbius vector addition x (+) c y with boundary saturation defense."""
         x = self.project_to_ball(x)
         y = self.project_to_ball(y)
         c = self.c
-        x_sq = torch.sum(x ** 2, dim=-1, keepdim=True)
-        y_sq = torch.sum(y ** 2, dim=-1, keepdim=True)
+        x_sq = torch.clamp(torch.sum(x ** 2, dim=-1, keepdim=True), max=1.0 - self.eps)
+        y_sq = torch.clamp(torch.sum(y ** 2, dim=-1, keepdim=True), max=1.0 - self.eps)
         xy = torch.sum(x * y, dim=-1, keepdim=True)
 
         num = (1.0 + 2.0 * c * xy + c * y_sq) * x + (1.0 - c * x_sq) * y
         denom = 1.0 + 2.0 * c * xy + (c ** 2) * x_sq * y_sq + 1e-7
+        denom = torch.clamp(denom, min=1e-5)
         return self.project_to_ball(num / denom)
 
     def geodesic_distance(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute hyperbolic geodesic distance d_M(x, y)."""
+        """
+        Compute hyperbolic geodesic distance d_M(x, y).
+        Strictly clamps argument to acosh to [1.0 + 1e-7, 1e4] to eliminate numerical explosions.
+        """
         x = self.project_to_ball(x)
         y = self.project_to_ball(y)
         diff_sq = torch.sum((x - y) ** 2, dim=-1, keepdim=True)
-        x_sq = torch.sum(x ** 2, dim=-1, keepdim=True)
-        y_sq = torch.sum(y ** 2, dim=-1, keepdim=True)
+        x_sq = torch.clamp(torch.sum(x ** 2, dim=-1, keepdim=True), max=1.0 - self.eps)
+        y_sq = torch.clamp(torch.sum(y ** 2, dim=-1, keepdim=True), max=1.0 - self.eps)
 
-        arg = 1.0 + 2.0 * diff_sq / ((1.0 - x_sq) * (1.0 - y_sq) + 1e-7)
-        arg = torch.clamp(arg, min=1.0 + 1e-7)
+        denom = torch.clamp((1.0 - x_sq) * (1.0 - y_sq), min=1e-7)
+        arg = 1.0 + 2.0 * diff_sq / denom
+        arg = torch.clamp(arg, min=1.0 + 1e-7, max=1e4)
         dist = torch.acosh(arg)
         return dist
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Project input features to Poincaré ball manifold and apply conformal scale."""
+        """Project input features to Poincaré ball manifold and apply bounded conformal scale."""
         x_proj = self.project_to_ball(x)
         scale = self.conformal_scale(x_proj)
         return x_proj * scale
@@ -80,7 +91,7 @@ class PoincareGyroplaneClassifier(nn.Module):
         self.num_classes = num_classes
         self.curvature = curvature
         self.temperature = temperature
-        self.chart = PoincareConformalChart(c=curvature)
+        self.chart = PoincareConformalChart(c=curvature, eps=1e-4)
         
         # Trainable Riemannian cluster centroids mu_k initialized inside unit ball
         raw_centroids = torch.randn(num_classes, embed_dim) * 0.05

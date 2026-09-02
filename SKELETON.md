@@ -102,6 +102,10 @@
   text: "Implement Continuous Periodic Time-Series Hardware Telemetry (hardware_telemetry_timeseries in DuckDB) and Poincaré Gyroplane Hyperbolic Geodesic Classification Head"
   spec_id: SPEC-023
 
+- id: REQ-024
+  text: "Implement 4 Forensic Remediation Guards: FP16 InfoNCE logit clamp (<= 10.8), strict VICReg variance hinge (gamma=1.0, eps=1e-4), Poincaré boundary clipping (||x|| <= 1 - 1e-4, lambda_x <= 1000), and Causal NTP token pad masking (ignore_index=0)"
+  spec_id: SPEC-024
+
 ---
 
 ## 2. Bounded Contexts & Aggregates

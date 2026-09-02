@@ -1,7 +1,7 @@
 """
 FILE-008 | FOLDER-004 | src/domain/loss/loss_functions.py
 Owning Aggregate: LossFunctions
-Responsibility: compute supervised contrastive VICReg and dec clustering losses with FP16 temperature clamping and target token bounds
+Responsibility: compute supervised contrastive VICReg and dec clustering losses with FP16 temperature clamping, variance hinge, and target token masking
 Must Never: allow un-clamped similarity matrix to cause FP16 overflow or NaN/Inf values
 """
 
@@ -10,10 +10,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class InfoNCELoss(nn.Module):
-    """InfoNCE Contrastive Loss for Self-Supervised Learning with FP16 overflow clamping."""
-    def __init__(self, temperature: float = 0.07):
+    """InfoNCE Contrastive Loss with strict FP16 overflow clamping (sim <= 10.8 to ensure exp(sim) < 65,504)."""
+    def __init__(self, temperature: float = 0.07, max_logit: float = 10.8):
         super().__init__()
         self.temperature = temperature
+        self.max_logit = max_logit
 
     def forward(self, z_i: torch.Tensor, z_j: torch.Tensor) -> torch.Tensor:
         """Compute InfoNCE contrastive loss over L2-normalized representations z_i, z_j [B, D]."""
@@ -24,8 +25,9 @@ class InfoNCELoss(nn.Module):
         representations = torch.cat([z_i, z_j], dim=0) # [2B, D]
         similarity_matrix = torch.matmul(representations, representations.T) / self.temperature # [2B, 2B]
 
-        # FP16 AMP Overflow Guard: Clamp similarity matrix to [-50, 50] to prevent exp() overflow (>65,504)
-        similarity_matrix = torch.clamp(similarity_matrix, min=-50.0, max=50.0)
+        # FP16 AMP Overflow Guard: Clamp similarity matrix to [-10.8, 10.8] (ln(65504) ~= 11.09)
+        # Prevents exp() overflow beyond 65,504 in FP16 arithmetic during chunk transitions (Epochs 21-23 spike fix)
+        similarity_matrix = torch.clamp(similarity_matrix, min=-self.max_logit, max=self.max_logit)
 
         # Labels for positive pairs bounded strictly within [0, 2B - 1]
         labels = torch.cat([torch.arange(batch_size, 2 * batch_size), torch.arange(0, batch_size)], dim=0).to(z_i.device)
@@ -33,7 +35,7 @@ class InfoNCELoss(nn.Module):
 
         # Mask out self-contrastive similarities
         mask = torch.eye(2 * batch_size, dtype=torch.bool, device=z_i.device)
-        similarity_matrix = similarity_matrix.masked_fill(mask, -50.0)
+        similarity_matrix = similarity_matrix.masked_fill(mask, -self.max_logit)
 
         loss = F.cross_entropy(similarity_matrix, labels)
         return torch.clamp(loss, min=0.0, max=50.0)
@@ -60,23 +62,37 @@ class BarlowTwinsLoss(nn.Module):
         return torch.clamp(loss, min=0.0, max=50.0)
 
 class VICRegLoss(nn.Module):
-    """VICReg (Variance-Invariance-Covariance Regularization) Loss with Normalized Weights."""
-    def __init__(self, sim_coeff: float = 1.0, std_coeff: float = 1.0, cov_coeff: float = 0.04):
+    """
+    VICReg Loss with strict variance hinge (gamma=1.0, eps=1e-4) and off-diagonal covariance penalty.
+    Maintains active channel variance across all latent dimensions, preventing latent dimensional collapse (evr -> 0).
+    """
+    def __init__(
+        self,
+        sim_coeff: float = 1.0,
+        std_coeff: float = 5.0,
+        cov_coeff: float = 0.01,
+        gamma: float = 1.0,
+        eps: float = 1e-4
+    ):
         super().__init__()
         self.sim_coeff = sim_coeff
         self.std_coeff = std_coeff
         self.cov_coeff = cov_coeff
+        self.gamma = gamma
+        self.eps = eps
 
     def forward(self, z_a: torch.Tensor, z_b: torch.Tensor) -> torch.Tensor:
-        """Compute numerically stable VICReg loss."""
+        """Compute numerically stable VICReg loss with variance hinge."""
         N, D = z_a.shape
 
         sim_loss = F.mse_loss(z_a, z_b)
 
-        std_z_a = torch.sqrt(z_a.var(dim=0) + 1e-4)
-        std_z_b = torch.sqrt(z_b.var(dim=0) + 1e-4)
-        std_loss = torch.mean(F.relu(1.0 - std_z_a)) + torch.mean(F.relu(1.0 - std_z_b))
+        # Variance Hinge: penalize any channel whose standard deviation falls below gamma=1.0
+        std_z_a = torch.sqrt(z_a.var(dim=0) + self.eps)
+        std_z_b = torch.sqrt(z_b.var(dim=0) + self.eps)
+        std_loss = torch.mean(F.relu(self.gamma - std_z_a)) + torch.mean(F.relu(self.gamma - std_z_b))
 
+        # Covariance Penalty: decorrelate all off-diagonal channel pairs
         z_a_cent = z_a - z_a.mean(dim=0)
         z_b_cent = z_b - z_b.mean(dim=0)
         cov_z_a = (z_a_cent.T @ z_a_cent) / max(1, N - 1)
@@ -88,14 +104,18 @@ class VICRegLoss(nn.Module):
         return torch.clamp(loss, min=0.0, max=50.0)
 
 class CausalNextTokenLoss(nn.Module):
-    """Causal Next-Token Prediction Loss over Auto-Regressive Thought Sequences with target token bounds."""
-    def __init__(self):
+    """
+    Causal Next-Token Prediction Loss with padded token masking (ignore_index=0).
+    Prevents unpadded token dilution from stalling real sequence perplexity.
+    """
+    def __init__(self, ignore_index: int = 0):
         super().__init__()
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.ignore_index = ignore_index
+        self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     def forward(self, ntp_logits: torch.Tensor, target_tokens: torch.Tensor) -> torch.Tensor:
         """
-        Compute causal next-token cross-entropy loss with target index bounds.
+        Compute causal next-token cross-entropy loss with target index bounds and pad masking.
         ntp_logits: [B, N, V] (where N >= S text tokens)
         target_tokens: [B, S]
         """
@@ -109,7 +129,9 @@ class CausalNextTokenLoss(nn.Module):
         shift_logits = text_logits[:, :-1, :].contiguous().view(-1, vocab_size) # [B*(S-1), V]
         shift_targets = matched_targets[:, 1:].contiguous().view(-1).long() # [B*(S-1)]
 
-        shift_targets = torch.clamp(shift_targets, min=0, max=vocab_size - 1)
+        # Mask out out-of-vocabulary indices to ignore_index so they do not corrupt gradients
+        valid_mask = (shift_targets >= 0) & (shift_targets < vocab_size)
+        shift_targets = torch.where(valid_mask, shift_targets, torch.tensor(self.ignore_index, device=shift_targets.device, dtype=torch.long))
 
         loss = self.loss_fn(shift_logits, shift_targets)
         return torch.clamp(loss, min=0.0, max=50.0)

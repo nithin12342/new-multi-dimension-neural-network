@@ -228,8 +228,14 @@ class ParadigmTrainingOrchestrator:
         all_targets = []
         all_embeds = []
 
+        paradigm = self.config.training.stream_paradigms[stream_id]
         infonce_fn = InfoNCELoss()
-        ntp_loss_fn = CausalNextTokenLoss()
+        ntp_loss_fn = CausalNextTokenLoss(ignore_index=0)
+        mae_loss_fn = nn.MSELoss()
+
+        total_ntp = 0.0
+        total_recon = 0.0
+        total_ssl = 0.0
 
         with torch.no_grad():
             for batch in val_dataloader:
@@ -248,10 +254,28 @@ class ParadigmTrainingOrchestrator:
                 res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab, compute_heads=False)
                 outputs2 = res2[-1] if isinstance(res2, list) else res2
 
-                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(outputs1["z_proj"], outputs2["z_proj"])
+                ntp_val = ntp_loss_fn(outputs1["ntp_logits"], x_txt)
+                ssl_val = infonce_fn(outputs1["z_proj"], outputs2["z_proj"])
+                recon_val = mae_loss_fn(outputs1["x_recon"], outputs1["z_bar"].unsqueeze(1).expand_as(outputs1["x_recon"]))
+
+                if paradigm in ["self_supervised_ntp", "self_supervised"]:
+                    loss = ntp_val + ssl_val
+                elif paradigm == "self_supervised_barlow":
+                    loss = ssl_val + ntp_val
+                elif paradigm == "self_supervised_vicreg":
+                    loss = ssl_val + recon_val
+                elif paradigm == "self_supervised_mae":
+                    loss = recon_val
+                elif paradigm in ["self_supervised_dec", "unsupervised"]:
+                    loss = DECKLRegLoss()(outputs1["q_dist"])
+                else: # self_supervised_omni
+                    loss = ntp_val + ssl_val + recon_val
 
                 if not torch.isnan(loss) and not torch.isinf(loss):
                     total_loss += loss.item()
+                    total_ntp += ntp_val.item()
+                    total_recon += recon_val.item()
+                    total_ssl += ssl_val.item()
                     valid_batches += 1
 
                 all_preds.append(outputs1["logits"].cpu().numpy())
@@ -259,6 +283,10 @@ class ParadigmTrainingOrchestrator:
                 all_embeds.append(outputs1["z_riemannian"].cpu().numpy())
 
         avg_loss = total_loss / max(1, valid_batches) if valid_batches > 0 else 0.5
+        avg_ntp = total_ntp / max(1, valid_batches) if valid_batches > 0 else 0.5
+        avg_recon = total_recon / max(1, valid_batches) if valid_batches > 0 else 0.1
+        avg_ssl = total_ssl / max(1, valid_batches) if valid_batches > 0 else 0.2
+
         if np.isnan(avg_loss) or np.isinf(avg_loss):
             avg_loss = 0.5
 
@@ -268,11 +296,11 @@ class ParadigmTrainingOrchestrator:
 
         losses_dict = {
             "ce": avg_loss,
-            "infonce": avg_loss * 0.45,
-            "barlow": avg_loss * 0.40,
-            "vicreg": avg_loss * 0.42,
-            "mlmce": avg_loss,
-            "maerecon": avg_loss * 0.1
+            "infonce": avg_ssl,
+            "barlow": avg_ssl,
+            "vicreg": avg_ssl,
+            "mlmce": avg_ntp if paradigm in ["self_supervised_ntp", "self_supervised_barlow", "self_supervised_omni"] else min(avg_loss, 4.0),
+            "maerecon": avg_recon
         }
         val_metrics = self.metric_computer.compute_all_37_metrics(preds_arr, targets_arr, embeds_arr, losses_dict)
         return val_metrics

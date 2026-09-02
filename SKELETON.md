@@ -106,6 +106,10 @@
   text: "Implement 4 Forensic Remediation Guards: FP16 InfoNCE logit clamp (<= 10.8), strict VICReg variance hinge (gamma=1.0, eps=1e-4), Poincaré boundary clipping (||x|| <= 1 - 1e-4, lambda_x <= 1000), and Causal NTP token pad masking (ignore_index=0)"
   spec_id: SPEC-024
 
+- id: REQ-025
+  text: "Implement Comprehensive Codebase & Systems Overhaul: StateDictRemapper with shape validation, contiguous multimodal collation, PyArrow in-memory buffering with Snappy Parquet export, SafeTensors 2.1.0 schema versioning, and autograd graph memory sanitization"
+  spec_id: SPEC-025
+
 ---
 
 ## 2. Bounded Contexts & Aggregates

@@ -200,6 +200,12 @@ class ParadigmTrainingOrchestrator:
             all_targets.append(targets.detach().cpu().numpy())
             all_embeds.append(outputs1["z_riemannian"].detach().cpu().numpy())
 
+            # Immediate batch tensor dereferencing to prevent VRAM memory compounding
+            del res1, res2, outputs1, outputs2, x_img, x_txt, targets
+            if x_vid is not None: del x_vid
+            if x_aud is not None: del x_aud
+            if x_tab is not None: del x_tab
+
         avg_loss = total_loss / max(1, valid_batches) if valid_batches > 0 else 0.5
         if np.isnan(avg_loss) or np.isinf(avg_loss):
             avg_loss = 0.5
@@ -278,9 +284,14 @@ class ParadigmTrainingOrchestrator:
                     total_ssl += ssl_val.item()
                     valid_batches += 1
 
-                all_preds.append(outputs1["logits"].cpu().numpy())
-                all_targets.append(targets.cpu().numpy())
-                all_embeds.append(outputs1["z_riemannian"].cpu().numpy())
+                all_preds.append(outputs1["logits"].detach().cpu().numpy())
+                all_targets.append(targets.detach().cpu().numpy())
+                all_embeds.append(outputs1["z_riemannian"].detach().cpu().numpy())
+
+                del res1, res2, outputs1, outputs2, x_img, x_txt, targets
+                if x_vid is not None: del x_vid
+                if x_aud is not None: del x_aud
+                if x_tab is not None: del x_tab
 
         avg_loss = total_loss / max(1, valid_batches) if valid_batches > 0 else 0.5
         avg_ntp = total_ntp / max(1, valid_batches) if valid_batches > 0 else 0.5

@@ -121,6 +121,8 @@ class CheckpointSerializer:
             "stream_id": str(stream_id + 1),
             "epoch": str(epoch),
             "timestamp": timestamp,
+            "architecture": "MultimodalNFMNet",
+            "architecture_version": "2.1.0",
             "model_version": system_config.version,
             "dataset_version": system_config.data.dataset_name,
             "metrics": json.dumps(metrics),

@@ -331,3 +331,102 @@ class PredictionLogExporter:
 
         return self.db_path
 
+    def export_epoch_metrics_to_parquet(
+        self,
+        epoch: int,
+        metrics_records: List[Dict[str, Any]],
+        parquet_dir: str = None
+    ) -> str:
+        """
+        Export metrics directly to Snappy-compressed Apache Parquet file.
+        Eliminates inner-loop database locking and enables zero-lock DuckDB analytics.
+        """
+        if parquet_dir is None:
+            parquet_dir = os.path.join(self.output_dir, "parquet_telemetry")
+        os.makedirs(parquet_dir, exist_ok=True)
+        parquet_path = os.path.join(parquet_dir, f"epoch_metrics_{epoch:04d}.parquet")
+
+        try:
+            import pyarrow as pa # type: ignore
+            import pyarrow.parquet as pq # type: ignore
+
+            table = pa.Table.from_pylist(metrics_records)
+            pq.write_table(table, parquet_path, compression="snappy")
+            return parquet_path
+        except Exception as e:
+            print(f"[Parquet Exporter] Warning writing to {parquet_path}: {e}", flush=True)
+            return ""
+
+    def register_parquet_views_in_duckdb(self, parquet_dir: str = None) -> None:
+        """Register Parquet files as dynamic views in DuckDB for zero-lock querying."""
+        if parquet_dir is None:
+            parquet_dir = os.path.join(self.output_dir, "parquet_telemetry")
+        
+        glob_path = os.path.join(parquet_dir, "epoch_metrics_*.parquet").replace("\\", "/")
+        try:
+            import duckdb # type: ignore
+            con = duckdb.connect(self.db_path, read_only=False)
+            con.execute(f"""
+                CREATE OR REPLACE VIEW v_epoch_metrics_parquet AS 
+                SELECT * FROM read_parquet('{glob_path}')
+            """)
+            con.close()
+        except Exception as e:
+            print(f"[DuckDB View] Warning registering parquet view: {e}", flush=True)
+
+
+class PyArrowTelemetryBuffer:
+    """
+    Sub-microsecond In-Memory Telemetry Accumulator.
+    Buffers metrics and predictions in memory during active GPU execution,
+    flushing to Snappy-compressed Parquet once per epoch to eliminate WAL disk stalls.
+    """
+
+    def __init__(self):
+        self._metric_records: List[Dict[str, Any]] = []
+        self._prediction_records: List[Dict[str, Any]] = []
+        self._error_records: List[Dict[str, Any]] = []
+
+    def buffer_metric(self, record: Dict[str, Any]) -> None:
+        """Buffer single metric record into memory."""
+        self._metric_records.append(record)
+
+    def buffer_prediction(self, record: Dict[str, Any]) -> None:
+        """Buffer single prediction record into memory."""
+        self._prediction_records.append(record)
+
+    def buffer_error_localization(self, record: Dict[str, Any]) -> None:
+        """Buffer single error localization record into memory."""
+        self._error_records.append(record)
+
+    def flush_epoch_parquet(self, epoch: int, output_dir: str) -> Dict[str, str]:
+        """Flush in-memory buffers to Snappy Parquet files and reset buffers."""
+        import pyarrow as pa # type: ignore
+        import pyarrow.parquet as pq # type: ignore
+
+        os.makedirs(output_dir, exist_ok=True)
+        flushed_files = {}
+
+        if self._metric_records:
+            metric_file = os.path.join(output_dir, f"metrics_ep{epoch:04d}.parquet")
+            table = pa.Table.from_pylist(self._metric_records)
+            pq.write_table(table, metric_file, compression="snappy")
+            flushed_files["metrics"] = metric_file
+            self._metric_records.clear()
+
+        if self._prediction_records:
+            pred_file = os.path.join(output_dir, f"predictions_ep{epoch:04d}.parquet")
+            table = pa.Table.from_pylist(self._prediction_records)
+            pq.write_table(table, pred_file, compression="snappy")
+            flushed_files["predictions"] = pred_file
+            self._prediction_records.clear()
+
+        if self._error_records:
+            err_file = os.path.join(output_dir, f"error_loc_ep{epoch:04d}.parquet")
+            table = pa.Table.from_pylist(self._error_records)
+            pq.write_table(table, err_file, compression="snappy")
+            flushed_files["error_localization"] = err_file
+            self._error_records.clear()
+
+        return flushed_files
+

@@ -10,8 +10,12 @@ import sys
 from typing import Dict, Any, List
 import torch
 from torch.utils.data import Dataset, DataLoader
-import torchvision.datasets as datasets # type: ignore
-import torchvision.transforms as transforms # type: ignore
+try:
+    import torchvision.datasets as datasets # type: ignore
+    import torchvision.transforms as transforms # type: ignore
+except ImportError:
+    datasets = None
+    transforms = None
 
 from src.domain.data.dataset_interface import AbstractMultimodalDataset
 from src.domain.config.config_entities import DataConfig
@@ -145,14 +149,14 @@ class MultimodalPyTorchDataset(Dataset, AbstractMultimodalDataset):
         return self.samples[idx]
 
     @staticmethod
-    def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        """Collate E-MM1 5-modality variable-length samples into batched tensors."""
-        images = torch.stack([b["image"] for b in batch], dim=0)
-        videos = torch.stack([b["video"] for b in batch], dim=0)
-        text = torch.stack([b["text"] for b in batch], dim=0)
-        audios = torch.stack([b["audio"] for b in batch], dim=0)
-        tabulars = torch.stack([b["tabular"] for b in batch], dim=0)
-        labels = torch.stack([b["label"] for b in batch], dim=0)
+    def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Collate E-MM1 5-modality variable-length samples into contiguous batched tensors."""
+        images = torch.stack([b["image"] for b in batch], dim=0).contiguous()
+        videos = torch.stack([b["video"] for b in batch], dim=0).contiguous()
+        text = torch.stack([b["text"] for b in batch], dim=0).contiguous()
+        audios = torch.stack([b["audio"] for b in batch], dim=0).contiguous()
+        tabulars = torch.stack([b["tabular"] for b in batch], dim=0).contiguous()
+        labels = torch.stack([b["label"] for b in batch], dim=0).contiguous()
         sample_ids = [b["sample_id"] for b in batch]
 
         return {

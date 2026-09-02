@@ -14,6 +14,20 @@ class MetricComputer:
     def __init__(self):
         pass
 
+    def format_serialized_signature(
+        self,
+        stream_id: int,
+        timestamp: str,
+        epoch: int,
+        model_version: str,
+        dataset_version: str,
+        metrics: Dict[str, Any]
+    ) -> str:
+        """Format clean safe serialized filename signature containing core metrics."""
+        acc = metrics.get("acc", 0.0)
+        loss = metrics.get("ce", metrics.get("loss", 0.0))
+        return f"model_{stream_id:02d}_ep{epoch:03d}_{timestamp}_acc{acc:.3f}_loss{loss:.3f}.safetensors"
+
     def _sanitize(self, val: Any, default: float = 0.0) -> float:
         """Sanitize NaN, Inf, and non-finite floats to safe bounded float."""
         try:
@@ -157,3 +171,6 @@ class MetricComputer:
         metrics["bic"] = round(self._sanitize(10 * np.log(max(1, total)) + 2 * ce_loss * total, 50.0), 2)
 
         return metrics
+
+# Backward compatibility alias
+ThirtySevenMetricComputer = MetricComputer

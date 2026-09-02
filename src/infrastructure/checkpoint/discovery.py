@@ -62,3 +62,80 @@ class CheckpointDiscoveryScanner:
             if self.validate_checkpoint_integrity(ckpt_path):
                 return ckpt_path
         return None
+
+    def read_checkpoint_metadata(self, checkpoint_path: str) -> Dict[str, str]:
+        """Read header metadata embedded inside a .safetensors checkpoint."""
+        try:
+            if checkpoint_path.endswith(".safetensors"):
+                with safe_open(checkpoint_path, framework="pt") as f:
+                    return f.metadata() or {}
+            return {}
+        except Exception:
+            return {}
+
+
+class StateDictRemapper:
+    """
+    Deterministic State Dictionary Remapper & Shape Validation Engine.
+    Resolves legacy architectural aliases and validates tensor dimensions
+    to prevent silent random re-initialization during model refactoring.
+    """
+
+    # Known parameter migration aliases across refactored architectures
+    ALIAS_MAP = {
+        "decoder.classifier.weight": "decoder.gyroplane.centroids",
+        "model.decoder.classifier.weight": "model.decoder.gyroplane.centroids",
+        "classifier.weight": "gyroplane.centroids",
+        "decoder.classifier.bias": None # Bias eliminated in hyperbolic gyroplane distance
+    }
+
+    @classmethod
+    def remap_and_validate(
+        cls,
+        loaded_state_dict: Dict[str, torch.Tensor],
+        target_model: torch.nn.Module,
+        strict_shapes: bool = True
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Remap loaded state dict keys to match target model, validate tensor shapes,
+        and raise fatal error if incompatible shapes are encountered.
+        """
+        target_state_dict = target_model.state_dict()
+        remapped_state_dict: Dict[str, torch.Tensor] = {}
+
+        # Strip or add 'model.' prefix if needed
+        has_model_prefix_loaded = any(k.startswith("model.") for k in loaded_state_dict.keys())
+        has_model_prefix_target = any(k.startswith("model.") for k in target_state_dict.keys())
+
+        for key, tensor in loaded_state_dict.items():
+            mapped_key = key
+
+            # Apply prefix adjustment
+            if has_model_prefix_loaded and not has_model_prefix_target:
+                mapped_key = mapped_key[6:]
+            elif not has_model_prefix_loaded and has_model_prefix_target:
+                mapped_key = f"model.{mapped_key}"
+
+            # Check explicit alias table
+            if mapped_key in cls.ALIAS_MAP:
+                alias = cls.ALIAS_MAP[mapped_key]
+                if alias is None:
+                    continue # Discard obsolete parameter
+                mapped_key = alias
+
+            if mapped_key in target_state_dict:
+                target_shape = target_state_dict[mapped_key].shape
+                if tensor.shape != target_shape:
+                    if strict_shapes:
+                        raise ValueError(
+                            f"[StateDictRemapper Fatal] Shape mismatch for parameter '{mapped_key}': "
+                            f"target model requires {list(target_shape)}, but checkpoint provides {list(tensor.shape)}."
+                        )
+                    else:
+                        continue # Skip incompatible shape
+                remapped_state_dict[mapped_key] = tensor
+            else:
+                # Key not present in target model; retained if not strictly constrained
+                remapped_state_dict[mapped_key] = tensor
+
+        return remapped_state_dict

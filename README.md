@@ -192,8 +192,20 @@ FINE-GRAINED LOCALIZATION & PREFIX ROLLBACK (ORNet / PRM / Step-DPO):
 git clone https://github.com/nithin12342/new-multi-dimension-neural-network.git
 cd new-multi-dimension-neural-network
 
-# Install dependencies
-pip install torch torchvision safetensors duckdb numpy scipy psutil transformers
+# Install dependencies (or install as package in editable mode)
+pip install -e .
+
+# Run full cross-language test suite (Rust + Python)
+python run_tests.py
+# Or run Rust tests directly from repo root:
+cargo test
+# Or run Python tests directly:
+python -m unittest discover -s tests/unit -p "test_*.py"
+
+# Launch production multi-stream training
+python train.py --epochs 5 --batch-size 16
+# Or launch canonical pretraining runner
+python pretrain.py
 ```
 
 ### Quick Start (Google Colab)
@@ -206,18 +218,18 @@ drive.mount('/content/drive')
 !git clone https://github.com/nithin12342/new-multi-dimension-neural-network.git
 %cd new-multi-dimension-neural-network
 
-!pip install -q safetensors duckdb psutil
+!pip install -q -e .
 
-!python train_omni.py
+!python train.py --epochs 5 --batch-size 16
 ```
 
 The pipeline will automatically:
-1. Mount Google Drive for persistent storage
-2. Download the E-MM1 multimodal dataset
-3. Auto-resume from the latest valid checkpoint (if any)
-4. Execute 6-stream self-supervised pretraining
-5. Log all 37 metrics to DuckDB telemetry database
-6. Save consolidated FP16 SafeTensors checkpoints to Google Drive
+1. Mount persistent storage
+2. Download and collate authentic E-MM1 multimodal tensors
+3. Auto-resume from the latest valid checkpoint via `StateDictRemapper`
+4. Execute 6-stream self-supervised pretraining with active InfoNCE clamping & Poincaré boundary clipping
+5. Log all 37 metrics to DuckDB and PyArrow / Parquet
+6. Save consolidated FP16 SafeTensors 2.1.0 checkpoints
 
 ---
 
@@ -226,7 +238,13 @@ The pipeline will automatically:
 ```
 new-multi-dimension-neural-network/
 │
-├── train_omni.py                           # 🚀 Entry point for Colab execution
+├── Cargo.toml                              # 🦀 Root Cargo workspace manifest
+├── pyproject.toml                          # 📦 Standard PEP 517/621 Python packaging
+├── setup.py                                # 📦 Pip package installation setup
+├── run_tests.py                            # 🧪 Unified test runner (Cargo + Python unittest)
+├── train.py                                # 🚀 Canonical production training entrypoint
+├── pretrain.py                             # 🚀 Canonical pretraining runner
+├── train_omni.py                           # 🚀 Colab pretraining orchestrator
 │
 ├── crates/
 │   └── nfm-core/                           # 🦀 Native Zero-Overhead Rust Runtime Layer
@@ -240,6 +258,11 @@ new-multi-dimension-neural-network/
 │       └── tests/                          #   Native integration test suite (13/13 passing)
 │
 ├── src/
+│   ├── engine/                             # ⚡ Canonical engine shortcut (Orchestrator + sanitization)
+│   ├── losses/                             # ⚡ Canonical losses shortcut (Clamped InfoNCE, VICReg, SSL bundle)
+│   ├── telemetry/                          # ⚡ Canonical telemetry shortcut (PyArrow buffer, DuckDB logger)
+│   ├── checkpoint/                         # ⚡ Canonical checkpoint shortcut (SafeTensors serializer & remapper)
+│   │
 │   ├── domain/                             # Pure domain logic (no I/O)
 │   │   ├── config/
 │   │   │   └── config_entities.py          #   Frozen dataclasses (Model, Data, Path, Training)

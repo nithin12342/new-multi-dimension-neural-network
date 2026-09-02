@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from scipy.special import softmax
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 from src.domain.config.config_entities import SystemConfig
 from src.domain.model.encoder import CombinedOmniEncoder
@@ -568,3 +568,22 @@ class ParadigmTrainingOrchestrator:
 
         session_logger.log_session_end(session_stats)
         print("[Orchestrator] All 6 Streams & Distillation Complete! Telemetry stored in multimodal_telemetry.duckdb", flush=True)
+
+def train_multi_stream(
+    num_epochs_budget: Optional[int] = None,
+    checkpoint_dir: Optional[str] = None,
+    base_drive_dir: Optional[str] = None,
+    device: Optional[str] = None,
+) -> None:
+    """Convenience entry function to configure and execute ParadigmTrainingOrchestrator."""
+    cfg = SystemConfig()
+    if num_epochs_budget is not None:
+        cfg.training.epochs_per_stream = num_epochs_budget
+    if checkpoint_dir is not None:
+        cfg.paths.checkpoint_dir = checkpoint_dir
+
+    dev = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    model = MultimodalNFMNet(return_error_localization=True).to(dev)
+    orchestrator = ParadigmTrainingOrchestrator(model=model, sys_config=cfg, device=dev)
+    return orchestrator.train_multi_stream()
+

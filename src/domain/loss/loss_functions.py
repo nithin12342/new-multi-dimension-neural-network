@@ -167,3 +167,7 @@ class DECKLRegLoss(nn.Module):
         p = self.compute_target_distribution(q)
         loss = F.kl_div(q.log(), p, reduction="batchmean")
         return torch.clamp(loss, min=0.0, max=50.0)
+
+# Backward compatibility & explicit naming alias
+ClampedInfoNCELoss = InfoNCELoss
+

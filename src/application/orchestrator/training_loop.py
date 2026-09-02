@@ -30,9 +30,27 @@ from src.infrastructure.data.multimodal_dataset import MultimodalPyTorchDataset
 from src.infrastructure.metrics.metric_computer import ThirtySevenMetricComputer
 from src.infrastructure.streams.stream_manager import SixStreamManager
 from src.infrastructure.checkpoint.serializer import CheckpointSerializer
-from src.infrastructure.checkpoint.discovery import CheckpointDiscoveryScanner
+from src.infrastructure.checkpoint.discovery import CheckpointDiscoveryScanner, StateDictRemapper
 from src.infrastructure.logging.session_logger import SessionTelemetryLogger
 from src.infrastructure.logging.prediction_logger import PredictionLogExporter
+
+def to_clean_scalar(val: Any, default: float = 0.0) -> float:
+    """
+    Pillar 1: Autograd Sanitization Utility.
+    Strictly detaches tensors from the computation graph and extracts a clean Python float,
+    preventing silent host RAM compounding and memory leaks.
+    """
+    if isinstance(val, torch.Tensor):
+        try:
+            f = float(val.detach().cpu().item())
+        except Exception:
+            return default
+    elif isinstance(val, (int, float, np.number)):
+        f = float(val)
+    else:
+        return default
+    return default if (np.isnan(f) or np.isinf(f)) else f
+
 
 class MultimodalNFMNet(nn.Module):
     """
@@ -67,6 +85,7 @@ class MultimodalNFMNet(nn.Module):
             num_classes=m_cfg.num_classes,
             num_clusters=m_cfg.num_clusters
         )
+        self.error_localization_engine = MultimodalErrorLocalizationEngine()
 
     def forward(
         self,
@@ -74,7 +93,8 @@ class MultimodalNFMNet(nn.Module):
         x_txt: torch.Tensor,
         x_vid: torch.Tensor = None,
         x_aud: torch.Tensor = None,
-        x_tab: torch.Tensor = None
+        x_tab: torch.Tensor = None,
+        return_error_localization: bool = False
     ) -> Dict[str, torch.Tensor]:
         """Forward pass executing Encoder -> Core Model -> Single Decoder nested matrix pipeline."""
         # 1. Combined Encoder with Nested Matrix Contraction
@@ -83,6 +103,17 @@ class MultimodalNFMNet(nn.Module):
         Z_seq, z_riemannian, z_bar = self.core(Z0)
         # 3. Single Nested Matrix Decoder combining all decoder functionality
         outputs = self.decoder(Z_seq, z_riemannian, z_bar)
+
+        if return_error_localization:
+            diag = self.error_localization_engine.diagnose_sample(
+                x_text_tokens=x_txt,
+                ntp_logits=outputs.get("ntp_logits"),
+                x_image=x_img,
+                image_recon=outputs.get("x_recon"),
+                x_audio=x_aud
+            )
+            outputs["error_localization"] = diag
+
         return outputs
 
 
@@ -386,6 +417,8 @@ class ParadigmTrainingOrchestrator:
                                 remapped_state[k] = v
                         state_dict = remapped_state
 
+                    # Apply StateDictRemapper to resolve aliases and validate shapes
+                    state_dict = StateDictRemapper.remap_and_validate(state_dict, model, strict_shapes=False)
                     model.load_state_dict(state_dict, strict=False)
                     start_epoch = ckpt_data.get("epoch", 1) + 1
                     best_acc = ckpt_data.get("metrics", {}).get("acc", 0.0)

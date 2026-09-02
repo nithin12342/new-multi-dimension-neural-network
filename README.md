@@ -245,27 +245,30 @@ new-multi-dimension-neural-network/
 │   │   │   └── paradigm_heads.py           #   SSL/Supervised/Clustering projection heads
 │   │   ├── loss/
 │   │   │   ├── loss_functions.py           #   InfoNCE, BarlowTwins, VICReg, NTP, DEC losses
+│   │   │   ├── losses.py                   #   ClampedInfoNCE, VICReg, CausalNextTokenLoss exports
+│   │   │   ├── ssl_bundle.py               #   MultimodalSSLBundle (6 SSL loss engines)
 │   │   │   └── matryoshka_loss.py          #   Multi-exit online distillation loss
 │   │   └── data/
 │   │       └── dataset_interface.py        #   AbstractMultimodalDataset interface
 │   │
 │   ├── application/                        # Orchestration & fault tolerance
 │   │   ├── orchestrator/
-│   │   │   ├── training_loop.py            #   ParadigmTrainingOrchestrator (6-stream engine)
+│   │   │   ├── training_loop.py            #   ParadigmTrainingOrchestrator + to_clean_scalar + MultimodalNFMNet
 │   │   │   └── distillation_manager.py     #   CheckpointDistillationManager (teacher fusion)
 │   │   └── fault_tolerance/
 │   │       └── recovery_manager.py         #   FaultToleranceManager (CUDA OOM recovery)
 │   │
 │   ├── infrastructure/                     # External systems & hardware
 │   │   ├── data/
-│   │   │   └── multimodal_dataset.py       #   E-MM1 5-modality dataset loader
+│   │   │   └── multimodal_dataset.py       #   E-MM1 5-modality dataset loader + PinnedTensorPool
 │   │   ├── checkpoint/
-│   │   │   ├── serializer.py               #   FP16 SafeTensors checkpoint serializer
-│   │   │   └── discovery.py                #   Recursive Drive checkpoint scanner
+│   │   │   ├── serializer.py               #   FP16 SafeTensors 2.1.0 checkpoint serializer
+│   │   │   └── discovery.py                #   Recursive Drive checkpoint scanner + StateDictRemapper
 │   │   ├── metrics/
 │   │   │   └── metric_computer.py          #   37-metric computer (8 metric families)
 │   │   ├── logging/
-│   │   │   ├── prediction_logger.py        #   DuckDB prediction & metric exporter
+│   │   │   ├── telemetry_recorder.py       #   TelemetryRecorder (PyArrow in-memory buffer -> Parquet)
+│   │   │   ├── prediction_logger.py        #   DuckDB prediction & metric exporter + Parquet views
 │   │   │   └── session_logger.py           #   Hardware telemetry profiler
 │   │   ├── storage/
 │   │   │   └── drive_manager.py            #   Google Drive mount & directory manager
@@ -277,6 +280,12 @@ new-multi-dimension-neural-network/
 │           └── main.py                     #   Pipeline CLI runner
 │
 ├── tests/
+│   ├── unit/
+│   │   ├── test_physical_grounding.py      #   Verification of all 7 overhaul components
+│   │   ├── test_codebase_overhaul.py       #   Remapper, Parquet buffer, and SafeTensors tests
+│   │   ├── test_remediation_guards.py      #   4 forensic numerical remediation guards
+│   │   ├── test_error_localization.py      #   Dual-stage multimodal error localization
+│   │   └── test_gyroplane_and_telemetry.py #   Poincaré Gyroplane & time-series telemetry
 │   └── e2e/
 │       └── test_full_pipeline.py           #   End-to-end forward & training tests
 │

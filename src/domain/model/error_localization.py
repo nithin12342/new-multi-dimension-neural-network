@@ -199,3 +199,48 @@ class MultimodalErrorLocalizationEngine(nn.Module):
         prefix_keys = cached_keys[:, :, :valid_step, :]
         prefix_values = cached_values[:, :, :valid_step, :]
         return prefix_keys, prefix_values
+
+    def diagnose_sample(
+        self,
+        x_text_tokens: Optional[torch.Tensor] = None,
+        ntp_logits: Optional[torch.Tensor] = None,
+        x_image: Optional[torch.Tensor] = None,
+        image_recon: Optional[torch.Tensor] = None,
+        x_audio: Optional[torch.Tensor] = None
+    ) -> Dict[str, Any]:
+        """Consolidate fine-grained multi-modal failure diagnostics for a sample batch."""
+        text_diag = []
+        if ntp_logits is not None and x_text_tokens is not None:
+            try:
+                text_diag = self.locate_text_failure(ntp_logits, x_text_tokens)
+            except Exception:
+                pass
+
+        img_diag = []
+        if image_recon is not None and x_image is not None:
+            try:
+                img_diag = self.locate_image_failure(image_recon, x_image)
+            except Exception:
+                pass
+
+        aud_diag = []
+        if x_audio is not None:
+            try:
+                aud_diag = self.locate_audio_failure(x_audio)
+            except Exception:
+                pass
+
+        status = "PASS"
+        if any(t.get("first_error_step", -1) != -1 for t in text_diag):
+            status = "FAIL_TEXT"
+        elif any(len(i.get("failed_patch_coords", [])) > 0 for i in img_diag):
+            status = "FAIL_IMAGE"
+
+        return {
+            "overall_status": status,
+            "status_flag": (status == "PASS"),
+            "text_diagnostics": text_diag,
+            "image_diagnostics": img_diag,
+            "audio_diagnostics": aud_diag
+        }
+

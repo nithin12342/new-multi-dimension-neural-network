@@ -7,7 +7,7 @@ Must Never: return un-collated variable length sequence batches
 
 import os
 import sys
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import torch
 from torch.utils.data import Dataset, DataLoader
 try:
@@ -172,3 +172,48 @@ class MultimodalPyTorchDataset(Dataset, AbstractMultimodalDataset):
 class CombinedOmniDataset(MultimodalPyTorchDataset):
     """Single Unified Combined E-MM1 5-Modality Dataset Loader Aggregate."""
     pass
+
+
+class PinnedTensorPool:
+    """
+    Pillar 4: Host-Device Pinned Memory Tensor Pool.
+    Pre-allocates and caches pinned host memory tensors (torch.empty(..., pin_memory=True))
+    to prevent memory fragmentation, eliminate PyTorch allocator GC thrashing,
+    and enable high-throughput asynchronous DMA transfers to GPU.
+    """
+
+    def __init__(self, default_batch_size: int = 16):
+        self.default_batch_size = default_batch_size
+        self._pool: Dict[str, torch.Tensor] = {}
+
+    def get_or_allocate_pinned(self, key: str, shape: Tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+        """Retrieve pre-allocated pinned buffer or allocate new pinned buffer if shape expands."""
+        if key in self._pool:
+            buf = self._pool[key]
+            if buf.shape == shape and buf.dtype == dtype:
+                return buf
+
+        # Allocate pinned host memory tensor
+        if torch.cuda.is_available():
+            pinned = torch.empty(shape, dtype=dtype, pin_memory=True)
+        else:
+            pinned = torch.empty(shape, dtype=dtype)
+        self._pool[key] = pinned
+        return pinned
+
+    def stage_batch_to_pinned(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        """Copy unpinned collated tensors into contiguous pinned pool buffers."""
+        staged = {}
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                pinned_buf = self.get_or_allocate_pinned(k, v.shape, v.dtype)
+                pinned_buf.copy_(v, non_blocking=True)
+                staged[k] = pinned_buf
+            else:
+                staged[k] = v
+        return staged
+
+    def clear(self) -> None:
+        """Release all allocated host memory pools."""
+        self._pool.clear()
+

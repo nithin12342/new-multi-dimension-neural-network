@@ -402,6 +402,7 @@ The repository includes extensive architectural documentation:
 | Document | Description |
 |----------|-------------|
 | [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 24 requirements and 25 DIP file nodes |
+| [`LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md`](LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md) | Comprehensive Architecture, Telemetry Forensics & Global Multi-Platform Publication Strategy |
 | [`REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md`](REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md) | 4 Forensic Remediation Guards (FP16 clamp, variance hinge, radius clipping, NTP pad mask) |
 | [`ADVERSARIAL_TELEMETRY_DIAGNOSTIC_ANALYSIS.md`](ADVERSARIAL_TELEMETRY_DIAGNOSTIC_ANALYSIS.md) | Forensic DuckDB audit across 25 sessions identifying the 4 core bottlenecks |
 | [`POINCARE_GYROPLANE_AND_PERIODIC_TELEMETRY_SPECIFICATION.md`](POINCARE_GYROPLANE_AND_PERIODIC_TELEMETRY_SPECIFICATION.md) | Poincaré Gyroplane Geodesic Classifier & Periodic Hardware Telemetry |

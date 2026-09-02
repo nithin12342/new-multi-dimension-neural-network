@@ -33,6 +33,8 @@ from src.infrastructure.checkpoint.serializer import CheckpointSerializer
 from src.infrastructure.checkpoint.discovery import CheckpointDiscoveryScanner, StateDictRemapper
 from src.infrastructure.logging.session_logger import SessionTelemetryLogger
 from src.infrastructure.logging.prediction_logger import PredictionLogExporter
+from src.telemetry.recorder import TelemetryRecorder
+from src.engine.monitor import EarlyWarningMonitor
 
 def to_clean_scalar(val: Any, default: float = 0.0) -> float:
     """
@@ -153,7 +155,9 @@ class ParadigmTrainingOrchestrator:
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
         optimizer: torch.optim.Optimizer,
-        scaler: Any
+        scaler: Any,
+        monitor: Optional[EarlyWarningMonitor] = None,
+        telemetry_recorder: Optional[TelemetryRecorder] = None
     ) -> Tuple[Dict[str, float], np.ndarray, np.ndarray, np.ndarray]:
         """Execute single training epoch with guaranteed weight parameter mutation."""
         model.train()
@@ -226,6 +230,34 @@ class ParadigmTrainingOrchestrator:
 
             total_loss += loss.item()
             valid_batches += 1
+
+            # Inline step evaluation and memory-only telemetry recording
+            step_loss = float(loss.item())
+            with torch.no_grad():
+                current_radius = float(torch.norm(outputs1["z_riemannian"], p=2, dim=-1).max().item())
+            step_ppl = float(np.exp(min(step_loss, 7.0)))
+
+            if monitor is not None:
+                monitor.inspect_step(
+                    epoch=epoch,
+                    step=valid_batches,
+                    stream=paradigm,
+                    loss=step_loss,
+                    ppl=step_ppl,
+                    radius=current_radius,
+                    raise_on_critical=False
+                )
+
+            if telemetry_recorder is not None:
+                telemetry_recorder.record_metric({
+                    "step": valid_batches,
+                    "epoch": epoch,
+                    "stream": paradigm,
+                    "loss": step_loss,
+                    "ppl": step_ppl,
+                    "radius": current_radius,
+                    "valid": True
+                })
 
             all_preds.append(outputs1["logits"].detach().cpu().numpy())
             all_targets.append(targets.detach().cpu().numpy())
@@ -437,6 +469,9 @@ class ParadigmTrainingOrchestrator:
 
             print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=target_epochs, eta_min=1e-6)
+            early_monitor = EarlyWarningMonitor(loss_spike_threshold=30.0, ppl_stall_threshold=600.0, radius_boundary_threshold=0.9999)
+            telemetry_recorder = TelemetryRecorder(output_dir=dirs["telemetry"])
+
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
                 
@@ -451,7 +486,8 @@ class ParadigmTrainingOrchestrator:
                 )
 
                 losses_dict, preds, targets, embeds = self.run_epoch(
-                    stream_id, epoch, model, epoch_train_loader, optimizer, scaler
+                    stream_id, epoch, model, epoch_train_loader, optimizer, scaler,
+                    monitor=early_monitor, telemetry_recorder=telemetry_recorder
                 )
                 scheduler.step()
                 val_metrics = self.validate_epoch(stream_id, epoch, model, val_loader)
@@ -523,6 +559,7 @@ class ParadigmTrainingOrchestrator:
                 pred_exporter.export_error_localization_logs(error_loc_records)
                 pred_exporter.export_epoch_metrics(stream_id + 1, epoch, paradigm, timestamp, val_metrics)
                 session_logger.log_periodic_hardware(stream_id + 1, epoch, elapsed)
+                telemetry_recorder.flush_epoch_parquet(epoch)
 
                 # Save ONLY 1 consolidated FP16 checkpoint per stream to Google Drive
                 ckpt_path = self.serializer.save_checkpoint(

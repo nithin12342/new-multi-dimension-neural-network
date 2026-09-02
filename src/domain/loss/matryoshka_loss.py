@@ -85,3 +85,7 @@ class MatryoshkaIntegratedDistillationLoss(nn.Module):
             "per_exit_losses": per_exit_losses,
             "distill_losses": distill_losses
         }
+
+# Backward compatibility alias
+MatryoshkaLoss = MatryoshkaIntegratedDistillationLoss
+

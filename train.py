@@ -60,6 +60,11 @@ def main():
     ssl_bundle = MultimodalSSLBundle()
     print(f"[Losses] MultimodalSSLBundle loaded with Clamped InfoNCE ([-10.8, 10.8]) & VICReg variance hinge.", flush=True)
 
+    # Instantiate Early Warning Monitor
+    from src.engine.monitor import EarlyWarningMonitor
+    monitor = EarlyWarningMonitor()
+    print(f"[Monitor] EarlyWarningMonitor initialized (Loss threshold: 30.0, PPL threshold: 600.0, Poincare norm: 0.9999).", flush=True)
+
     # Execute training orchestrator
     orchestrator = ParadigmTrainingOrchestrator(
         model=model,

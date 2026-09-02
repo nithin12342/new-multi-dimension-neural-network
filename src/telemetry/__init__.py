@@ -1,9 +1,9 @@
 """
 Package: src.telemetry
-Canonical shortcut forwarding to DuckDB and PyArrow telemetry loggers.
+Canonical telemetry shortcut exporting in-memory Arrow recorder, DuckDB exporters, and session loggers.
 """
 
-from src.infrastructure.logging.telemetry_recorder import TelemetryRecorder
+from src.telemetry.recorder import TelemetryRecorder
 from src.infrastructure.logging.prediction_logger import PredictionLogExporter, PyArrowTelemetryBuffer
 from src.infrastructure.logging.session_logger import SessionTelemetryLogger
 

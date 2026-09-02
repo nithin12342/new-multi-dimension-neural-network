@@ -14,6 +14,11 @@ from src.domain.loss.loss_functions import (
     DECKLRegLoss,
     ClampedInfoNCELoss
 )
+import torch.nn as nn
+
+class MaskedReconstructionLoss(nn.MSELoss):
+    """Mean Squared Error patch reconstruction loss for Masked Autoencoder (MAE)."""
+    pass
 
 __all__ = [
     "InfoNCELoss",
@@ -22,5 +27,6 @@ __all__ = [
     "VICRegLoss",
     "CausalNextTokenLoss",
     "CrossEntropyParadigmLoss",
-    "DECKLRegLoss"
+    "DECKLRegLoss",
+    "MaskedReconstructionLoss"
 ]

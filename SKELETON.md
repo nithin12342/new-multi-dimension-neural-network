@@ -110,6 +110,10 @@
   text: "Implement Comprehensive Codebase & Systems Overhaul: StateDictRemapper with shape validation, contiguous multimodal collation, PyArrow in-memory buffering with Snappy Parquet export, SafeTensors 2.1.0 schema versioning, and autograd graph memory sanitization"
   spec_id: SPEC-025
 
+- id: REQ-026
+  text: "Implement Native Rust Runtime Layer (crates/nfm-core): Chebyshev tile contractions, Poincaré boundary gyro-projections, clamped InfoNCE/VICReg losses, lock-free Arrow telemetry buffering, and SafeTensors state dict validator"
+  spec_id: SPEC-026
+
 ---
 
 ## 2. Bounded Contexts & Aggregates

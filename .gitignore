@@ -14,3 +14,8 @@ __pycache__/
 # DuckDB telemetry
 *.duckdb
 *.wal
+
+# Rust target outputs
+target/
+crates/**/target/
+

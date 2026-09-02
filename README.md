@@ -228,6 +228,17 @@ new-multi-dimension-neural-network/
 │
 ├── train_omni.py                           # 🚀 Entry point for Colab execution
 │
+├── crates/
+│   └── nfm-core/                           # 🦀 Native Zero-Overhead Rust Runtime Layer
+│       ├── Cargo.toml                      #   Arrow 53, Parquet (Snappy), SafeTensors 0.4
+│       ├── src/
+│       │   ├── lib.rs                      #   C-ABI exports & public modules
+│       │   ├── kernels/                    #   Chebyshev tile contractions & Poincaré projections
+│       │   ├── losses/                     #   Clamped InfoNCE & VICReg variance hinge
+│       │   ├── telemetry/                  #   Arrow buffer, Parquet sink, Terminal monitor
+│       │   └── checkpoint/                 #   SafeTensors shape validator & alias remapper
+│       └── tests/                          #   Native integration test suite (13/13 passing)
+│
 ├── src/
 │   ├── domain/                             # Pure domain logic (no I/O)
 │   │   ├── config/
@@ -410,7 +421,7 @@ The repository includes extensive architectural documentation:
 
 | Document | Description |
 |----------|-------------|
-| [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 25 requirements and 25 DIP file nodes |
+| [`SKELETON.md`](SKELETON.md) | Master architectural blueprint with 26 requirements and 25 DIP file nodes |
 | [`COMPREHENSIVE_CODEBASE_OVERHAUL_AND_SYSTEMS_BLUEPRINT.md`](COMPREHENSIVE_CODEBASE_OVERHAUL_AND_SYSTEMS_BLUEPRINT.md) | Razor-Sharp Codebase & Systems Overhaul Blueprint (7 Pillars, Memory Lifecycle, Zero-Lock Telemetry) |
 | [`LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md`](LINKEDIN_AND_ADVANCED_AI_PROJECT_INTENTION_ENGINEERING_REPORT.md) | Comprehensive Architecture, Telemetry Forensics & Global Multi-Platform Publication Strategy |
 | [`REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md`](REMEDIATION_GUARDS_IMPLEMENTATION_REPORT.md) | 4 Forensic Remediation Guards (FP16 clamp, variance hinge, radius clipping, NTP pad mask) |

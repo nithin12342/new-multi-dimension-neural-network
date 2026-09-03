@@ -1,14 +1,73 @@
 //! Epoch-Boundary Snappy Parquet Telemetry Writer
 //! Flushes Arrow RecordBatches directly to compressed Parquet files for zero-lock DuckDB querying.
 
+use arrow::array::{Float32Builder, Int32Builder, StringBuilder};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::ring_buffer::ArrowTelemetryBuffer;
+
+pub struct ArrowTelemetrySink {
+    schema: Arc<Schema>,
+    step_builder: Int32Builder,
+    stream_builder: StringBuilder,
+    loss_builder: Float32Builder,
+    ppl_builder: Float32Builder,
+}
+
+impl ArrowTelemetrySink {
+    pub fn new() -> Self {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("step", DataType::Int32, false),
+            Field::new("stream", DataType::Utf8, false),
+            Field::new("loss", DataType::Float32, false),
+            Field::new("ppl", DataType::Float32, false),
+        ]));
+
+        Self {
+            schema,
+            step_builder: Int32Builder::new(),
+            stream_builder: StringBuilder::new(),
+            loss_builder: Float32Builder::new(),
+            ppl_builder: Float32Builder::new(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn record_step(&mut self, step: i32, stream: &str, loss: f32, ppl: f32) {
+        self.step_builder.append_value(step);
+        self.stream_builder.append_value(stream);
+        self.loss_builder.append_value(loss);
+        self.ppl_builder.append_value(ppl);
+    }
+
+    pub fn commit_epoch_parquet(&mut self, destination_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let batch = RecordBatch::try_new(
+            self.schema.clone(),
+            vec![
+                Arc::new(self.step_builder.finish()),
+                Arc::new(self.stream_builder.finish()),
+                Arc::new(self.loss_builder.finish()),
+                Arc::new(self.ppl_builder.finish()),
+            ],
+        )?;
+
+        let file = File::create(destination_path)?;
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .build();
+        let mut writer = ArrowWriter::try_new(file, self.schema.clone(), Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+        Ok(())
+    }
+}
 
 pub struct ParquetTelemetrySink;
 

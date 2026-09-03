@@ -1,12 +1,19 @@
 //! Clamped Contrastive Logit Loss (InfoNCE)
 //! Applies hard logit clamping to [-10.8, 10.8] to eliminate FP16 exp() overflow (>65,504).
 
-/// Computes InfoNCE loss with strict logit clamping [-10.8, 10.8] to guarantee no exp() overflow
-pub fn clamped_infonce_loss(sim_matrix: &mut [f32], tau: f32) {
-    for logit in sim_matrix.iter_mut() {
-        let scaled = *logit / tau;
+/// InfoNCE logit defense against FP16 overflow
+#[inline(always)]
+pub fn clamp_contrastive_logits(logits: &mut [f32], tau: f32) {
+    let inv_tau = 1.0 / tau;
+    for logit in logits.iter_mut() {
+        let scaled = *logit * inv_tau;
         *logit = scaled.clamp(-10.8, 10.8);
     }
+}
+
+/// Computes InfoNCE loss with strict logit clamping [-10.8, 10.8] to guarantee no exp() overflow
+pub fn clamped_infonce_loss(sim_matrix: &mut [f32], tau: f32) {
+    clamp_contrastive_logits(sim_matrix, tau);
 }
 
 /// Computes cross-entropy of similarity matrix row over positive diagonal

@@ -4,6 +4,30 @@
 use safetensors::tensor::SafeTensors;
 use std::collections::HashMap;
 
+pub struct StateDictRemapper {
+    pub canonical_shapes: HashMap<String, Vec<usize>>,
+    pub key_aliases: HashMap<String, String>,
+}
+
+impl StateDictRemapper {
+    pub fn new(canonical_shapes: HashMap<String, Vec<usize>>, key_aliases: HashMap<String, String>) -> Self {
+        Self { canonical_shapes, key_aliases }
+    }
+
+    pub fn resolve_key(&self, raw_key: &str) -> String {
+        self.key_aliases.get(raw_key).cloned().unwrap_or_else(|| raw_key.to_string())
+    }
+
+    pub fn verify_tensor_layout(&self, key: &str, shape: &[usize]) -> Result<(), String> {
+        let canonical_key = self.resolve_key(key);
+        match self.canonical_shapes.get(&canonical_key) {
+            Some(expected) if expected.as_slice() == shape => Ok(()),
+            Some(expected) => Err(format!("Shape mismatch on {canonical_key}: expected {expected:?}, found {shape:?}")),
+            None => Err(format!("Unrecognized model parameter: {key}")),
+        }
+    }
+}
+
 pub struct CheckpointValidator {
     expected_shapes: HashMap<String, Vec<usize>>,
     alias_map: HashMap<String, String>,

@@ -1,6 +1,39 @@
 //! Boundary-Clipped Poincaré Ball Chart & Gyro-Projection
 //! Enforces radius clipping ||x|| <= 1 - eps and bounded conformal scale lambda_x <= 1000.0.
 
+pub struct PoincareManifold {
+    pub c: f32,
+    pub eps: f32,
+}
+
+impl PoincareManifold {
+    pub fn new(c: f32) -> Self {
+        Self { c, eps: 1e-4 }
+    }
+
+    #[inline(always)]
+    pub fn project_boundary(&self, vectors: &mut [f32], dim: usize) {
+        let max_norm = 1.0 - self.eps;
+        for chunk in vectors.chunks_mut(dim) {
+            let norm_sq: f32 = chunk.iter().map(|v| v * v).sum();
+            let norm = norm_sq.sqrt();
+            if norm >= max_norm {
+                let scale = max_norm / (norm + 1e-7);
+                for v in chunk.iter_mut() {
+                    *v *= scale;
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn conformal_factor(&self, x: &[f32]) -> f32 {
+        let norm_sq: f32 = x.iter().map(|v| v * v).sum();
+        let denom = (1.0 - self.c * norm_sq).max(self.eps);
+        (2.0 / denom).min(1000.0)
+    }
+}
+
 pub struct PoincareBall {
     pub c: f32,
     pub eps: f32,

@@ -7,12 +7,17 @@ pub mod kernels;
 pub mod losses;
 pub mod telemetry;
 pub mod checkpoint;
+pub mod localization;
+pub mod engine;
 
 // Re-exports
-pub use kernels::{PoincareBall, eval_chebyshev_order2_tile, contract_tile_16x16};
-pub use losses::{clamped_infonce_loss, compute_infonce_loss_from_logits, vicreg_variance_hinge};
-pub use telemetry::{ArrowTelemetryBuffer, ParquetTelemetrySink, TerminalSafetyMonitor, SafetyStatus};
-pub use checkpoint::CheckpointValidator;
+pub use kernels::{PoincareBall, PoincareManifold, eval_chebyshev_order2_tile, evaluate_chebyshev_tile, contract_tile_16x16};
+pub use losses::{clamp_contrastive_logits, clamped_infonce_loss, compute_infonce_loss_from_logits, vicreg_variance_hinge};
+pub use telemetry::{ArrowTelemetryBuffer, ParquetTelemetrySink, ArrowTelemetrySink, TerminalSafetyMonitor, SafetyStatus};
+pub use checkpoint::{CheckpointValidator, StateDictRemapper};
+pub use localization::DualStageLocalizer;
+pub use engine::PinnedBufferPool;
+
 
 // =========================================================================
 // Zero-Overhead C-ABI Foreign Function Interface (FFI) for Python / C interop

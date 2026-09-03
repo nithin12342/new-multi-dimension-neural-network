@@ -1,3 +1,4 @@
 pub mod state_dict;
 
-pub use state_dict::CheckpointValidator;
+pub use state_dict::{CheckpointValidator, StateDictRemapper};
+

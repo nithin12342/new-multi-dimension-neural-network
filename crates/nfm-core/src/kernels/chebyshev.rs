@@ -5,6 +5,18 @@
 //!   T_2(x) = 2x^2 - 1
 //! in CPU vector registers/SRAM with zero intermediate allocations.
 
+/// Evaluates an Order-2 Chebyshev functional expansion over a 16x16 flattened tile.
+/// Input slice length: 256 (16 * 16), Output slice length: 768 (256 * 3).
+#[inline(always)]
+pub fn evaluate_chebyshev_tile(src: &[f32; 256], dst: &mut [f32; 768]) {
+    for i in 0..256 {
+        let x = src[i].clamp(-1.0, 1.0);
+        dst[i] = 1.0;                  // T_0(x)
+        dst[256 + i] = x;              // T_1(x)
+        dst[512 + i] = 2.0 * x * x - 1.0; // T_2(x)
+    }
+}
+
 /// Evaluates Order-2 Chebyshev polynomial expansions for a slice of values
 /// into a contiguous destination slice of length `3 * src.len()`.
 ///

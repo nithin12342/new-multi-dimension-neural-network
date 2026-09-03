@@ -10,27 +10,48 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Any, List, Optional, Tuple
 
+class DualStageLocalizer:
+    """
+    Dual-Stage Error Localizer.
+    Stage 1: Audits modal encoder feature representations to ensure active variance (anti-collapse).
+    Stage 2: Validates fused cross-modal gradients before parameter updates (anti-explosion).
+    """
+
+    def __init__(self, variance_floor: float = 1e-4, grad_norm_cap: float = 100.0):
+        self.variance_floor = variance_floor
+        self.grad_norm_cap = grad_norm_cap
+
+    def audit_intermediate_features(self, features: torch.Tensor, dim: int = 256) -> bool:
+        if features.numel() == 0:
+            return False
+        var = float(torch.var(features.float()).item())
+        return var >= self.variance_floor
+
+    def audit_fused_gradients(self, grads: torch.Tensor) -> bool:
+        norm = float(torch.norm(grads.float(), p=2).item())
+        return norm <= self.grad_norm_cap
+
 class MultimodalErrorLocalizationEngine(nn.Module):
     """
     Fine-Grained Failure Localization & Prefix Rollback Engine for MultimodalNFMNet.
-    Identifies exact failure coordinates across 5 modalities:
-      1. Text: Token index t* and reasoning step s* where CE loss spikes
-      2. Image: Spatial patch grid coordinates (h*, w*) where MAE reconstruction residual exceeds threshold
-      3. Video: Spatiotemporal coordinate (t*, h*, w*) and temporal transition loss
-      4. Audio: Time-frequency bin (f*, t*) in Mel-spectrogram
-      5. Tabular: Column feature index d* with maximal projection error
+    Identifies exact failure coordinates across 5 modalities.
     """
 
     def __init__(
         self,
         text_loss_threshold: float = 4.0,
         patch_loss_threshold: float = 0.25,
-        audio_spectral_threshold: float = 0.30
+        audio_spectral_threshold: float = 0.30,
+        variance_floor: float = 1e-4,
+        grad_norm_cap: float = 100.0
     ):
         super().__init__()
         self.text_loss_thresh = text_loss_threshold
         self.patch_loss_thresh = patch_loss_threshold
         self.audio_spectral_thresh = audio_spectral_threshold
+        self.variance_floor = variance_floor
+        self.grad_norm_cap = grad_norm_cap
+        self.localizer = DualStageLocalizer(variance_floor=variance_floor, grad_norm_cap=grad_norm_cap)
 
     def locate_text_failure(
         self,

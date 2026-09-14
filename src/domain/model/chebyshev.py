@@ -25,10 +25,16 @@ class ChebyshevFunctionalBlock(nn.Module):
             f"embed_dim ({embed_dim}) must equal tile_dim^2 ({tile_dim * tile_dim})"
         )
 
-        # Trainable 16x16 coefficient matrices C0, C1, C2
-        self.C0 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
-        self.C1 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
-        self.C2 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
+        # Trainable 16x16 coefficient matrices C0, C1, C2.
+        # Gain-2 Xavier init over the 3 concatenated bases: each block must
+        # output ~2x its input RMS because the TraceInvariantGate that always
+        # follows halves it (sigmoid(Tr/16) ~= 0.5 at init), netting ~1.0 per
+        # stage. The old 0.02 shrank ~7x per block, collapsing the network to
+        # a constant function (z_bar -> 0, all views identical, silhouette 0).
+        init_std = 2.0 / (3 * tile_dim) ** 0.5
+        self.C0 = nn.Parameter(torch.randn(tile_dim, tile_dim) * init_std)
+        self.C1 = nn.Parameter(torch.randn(tile_dim, tile_dim) * init_std)
+        self.C2 = nn.Parameter(torch.randn(tile_dim, tile_dim) * init_std)
 
     def compute_chebyshev_bases(
         self, X: torch.Tensor
@@ -43,10 +49,11 @@ class ChebyshevFunctionalBlock(nn.Module):
         T0 = X
         T1 = X
         # Batch matrix multiplication: X @ X^T -> [B_N, 16, 16], averaged
-        # over the contraction dim. A raw sum makes T2 grow ~16x per stage,
-        # so stacked blocks explode super-exponentially once ||X|| > ~0.1.
-        # The mean keeps T2 ~= -X at init (small X) while taming growth 16x.
-        XXT = torch.bmm(X, X.transpose(1, 2)) / self.tile_dim
+        # over 4 contraction dims. The gain-2 init above raises the quadratic
+        # term with it, so T2 is tamed 4x harder to keep large-X behavior
+        # stable (per-stage map ~= 0.6 a^2, fixed point well above the
+        # operating range). At init (small X) T2 ~= -X, as before.
+        XXT = torch.bmm(X, X.transpose(1, 2)) / (4 * self.tile_dim)
         T2 = 2.0 * XXT - X
         return T0, T1, T2
 

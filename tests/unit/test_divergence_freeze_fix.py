@@ -35,6 +35,24 @@ class TestNoZeroGradLossClamp(unittest.TestCase):
         self.assertIsNotNone(logits.grad)
         self.assertGreater(logits.grad.abs().sum().item(), 0.0)
 
+    def test_infonce_forward_stays_fp16_bounded(self):
+        """Forward similarities must stay within [-10.8, 10.8] (FP16 contract)."""
+        loss_fn = InfoNCELoss(temperature=0.07)
+        z = (torch.randn(4, 16) * 100.0).requires_grad_()
+        loss = loss_fn(z, z.clone().detach())
+        self.assertTrue(torch.isfinite(loss))
+
+    def test_infonce_grad_reaches_embeddings_when_saturated(self):
+        """Straight-through clamp: saturated sims must still push gradients into z."""
+        loss_fn = InfoNCELoss(temperature=0.07)
+        base = torch.randn(4, 16)
+        # Near-identical views -> all sims saturate the 10.8 ceiling.
+        z = (base + torch.randn_like(base) * 1e-4).requires_grad_()
+        loss = loss_fn(z, base)
+        loss.backward()
+        self.assertIsNotNone(z.grad)
+        self.assertGreater(z.grad.abs().sum().item(), 0.0)
+
     def test_infonce_grad_flows_on_collapsed_views(self):
         """Identical views must still produce gradient signal (uniform sim -> ln(2B-1))."""
         loss_fn = InfoNCELoss(temperature=0.07)

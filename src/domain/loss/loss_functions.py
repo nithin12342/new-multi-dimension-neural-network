@@ -31,9 +31,15 @@ class InfoNCELoss(nn.Module):
 
         # FP16 AMP Overflow Guard: Clamp similarity matrix to [-10.8, 10.8] (ln(65504) ~= 11.09)
         # Prevents exp() overflow beyond 65,504 in FP16 arithmetic during chunk transitions (Epochs 21-23 spike fix)
-        similarity_matrix = torch.clamp(
+        # Straight-through estimator: forward stays hard-clamped (FP16
+        # contract intact), but gradients flow as if unclamped. A plain clamp
+        # zeroes gradients in the saturated zone -- exactly where collapsed
+        # embeddings live (all sims > 10.8) -- blinding contrastive learning
+        # when it is needed most.
+        sim_hard = torch.clamp(
             similarity_matrix, min=-self.max_logit, max=self.max_logit
         )
+        similarity_matrix = similarity_matrix + (sim_hard - similarity_matrix).detach()
 
         # Labels for positive pairs bounded strictly within [0, 2B - 1]
         labels = torch.cat(

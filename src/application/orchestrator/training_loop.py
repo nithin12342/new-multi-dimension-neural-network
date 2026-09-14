@@ -19,8 +19,12 @@ from src.domain.model.core_model import FunctionalCoreModel
 from src.domain.model.decoder import SingleNestedMatrixDecoder
 
 from src.domain.loss.loss_functions import (
-    InfoNCELoss, BarlowTwinsLoss, VICRegLoss, CausalNextTokenLoss,
-    CrossEntropyParadigmLoss, DECKLRegLoss
+    InfoNCELoss,
+    BarlowTwinsLoss,
+    VICRegLoss,
+    CausalNextTokenLoss,
+    CrossEntropyParadigmLoss,
+    DECKLRegLoss,
 )
 from src.domain.model.matryoshka_suite import MultimodalMatryoshkaSuite
 from src.domain.model.error_localization import MultimodalErrorLocalizationEngine
@@ -30,11 +34,15 @@ from src.infrastructure.data.multimodal_dataset import MultimodalPyTorchDataset
 from src.infrastructure.metrics.metric_computer import ThirtySevenMetricComputer
 from src.infrastructure.streams.stream_manager import SixStreamManager
 from src.infrastructure.checkpoint.serializer import CheckpointSerializer
-from src.infrastructure.checkpoint.discovery import CheckpointDiscoveryScanner, StateDictRemapper
+from src.infrastructure.checkpoint.discovery import (
+    CheckpointDiscoveryScanner,
+    StateDictRemapper,
+)
 from src.infrastructure.logging.session_logger import SessionTelemetryLogger
 from src.infrastructure.logging.prediction_logger import PredictionLogExporter
 from src.telemetry.recorder import TelemetryRecorder
 from src.engine.monitor import EarlyWarningMonitor
+
 
 def to_clean_scalar(val: Any, default: float = 0.0) -> float:
     """
@@ -61,6 +69,7 @@ class MultimodalNFMNet(nn.Module):
     2. FunctionalCoreModel (Order-2 Chebyshev Matrix Contractions + Poincaré Hyperbolic Chart)
     3. SingleNestedMatrixDecoder (Single Unified Multi-Task Decoder backed by Chebyshev Nested Matrix Polynomial Contractions)
     """
+
     def __init__(self, config: SystemConfig = SystemConfig()):
         super().__init__()
         m_cfg = config.model
@@ -70,13 +79,13 @@ class MultimodalNFMNet(nn.Module):
             vocab_size=m_cfg.vocab_size,
             num_tab_features=15,
             tile_dim=m_cfg.tile_dim,
-            chebyshev_order=m_cfg.chebyshev_order
+            chebyshev_order=m_cfg.chebyshev_order,
         )
         self.core = FunctionalCoreModel(
             embed_dim=m_cfg.embed_dim,
             tile_dim=m_cfg.tile_dim,
             chebyshev_order=m_cfg.chebyshev_order,
-            poincare_curvature=m_cfg.poincare_curvature
+            poincare_curvature=m_cfg.poincare_curvature,
         )
         self.decoder = SingleNestedMatrixDecoder(
             embed_dim=m_cfg.embed_dim,
@@ -85,7 +94,7 @@ class MultimodalNFMNet(nn.Module):
             proj_dim=m_cfg.projection_dim,
             vocab_size=m_cfg.vocab_size,
             num_classes=m_cfg.num_classes,
-            num_clusters=m_cfg.num_clusters
+            num_clusters=m_cfg.num_clusters,
         )
         self.error_localization_engine = MultimodalErrorLocalizationEngine()
 
@@ -96,7 +105,7 @@ class MultimodalNFMNet(nn.Module):
         x_vid: torch.Tensor = None,
         x_aud: torch.Tensor = None,
         x_tab: torch.Tensor = None,
-        return_error_localization: bool = False
+        return_error_localization: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass executing Encoder -> Core Model -> Single Decoder nested matrix pipeline."""
         # 1. Combined Encoder with Nested Matrix Contraction
@@ -112,7 +121,7 @@ class MultimodalNFMNet(nn.Module):
                 ntp_logits=outputs.get("ntp_logits"),
                 x_image=x_img,
                 image_recon=outputs.get("x_recon"),
-                x_audio=x_aud
+                x_audio=x_aud,
             )
             outputs["error_localization"] = diag
 
@@ -143,7 +152,7 @@ class ParadigmTrainingOrchestrator:
                 chebyshev_order=m_cfg.chebyshev_order,
                 vocab_size=m_cfg.vocab_size,
                 num_classes=m_cfg.num_classes,
-                num_exits=3
+                num_exits=3,
             )
             for _ in range(self.config.training.num_streams)
         ]
@@ -157,7 +166,7 @@ class ParadigmTrainingOrchestrator:
         optimizer: torch.optim.Optimizer,
         scaler: Any,
         monitor: Optional[EarlyWarningMonitor] = None,
-        telemetry_recorder: Optional[TelemetryRecorder] = None
+        telemetry_recorder: Optional[TelemetryRecorder] = None,
     ) -> Tuple[Dict[str, float], np.ndarray, np.ndarray, np.ndarray]:
         """Execute single training epoch with guaranteed weight parameter mutation."""
         model.train()
@@ -175,7 +184,6 @@ class ParadigmTrainingOrchestrator:
         ntp_loss_fn = CausalNextTokenLoss()
         dec_kl_fn = DECKLRegLoss()
 
-
         for batch in dataloader:
             x_img = batch["image"].to(device)
             x_txt = batch["text"].to(device)
@@ -189,7 +197,7 @@ class ParadigmTrainingOrchestrator:
             # View 1: Complete 5-Modality Pass
             res1 = model(x_img, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab)
             if isinstance(res1, list):
-                outputs1 = res1[-1] # Master Exit (Exit 3)
+                outputs1 = res1[-1]  # Master Exit (Exit 3)
                 exits1 = res1
             else:
                 outputs1 = res1
@@ -197,7 +205,14 @@ class ParadigmTrainingOrchestrator:
 
             # View 2: Cross-Modal Augmented Pass (compute_heads=False skips heavy 30522-dim NTP projections to preserve VRAM)
             x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-            res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab, compute_heads=False)
+            res2 = model(
+                x_img_aug,
+                x_txt,
+                x_vid=x_vid,
+                x_aud=x_aud,
+                x_tab=x_tab,
+                compute_heads=False,
+            )
             outputs2 = res2[-1] if isinstance(res2, list) else res2
 
             z_proj1 = outputs1["z_proj"]
@@ -206,27 +221,60 @@ class ParadigmTrainingOrchestrator:
             paradigm = self.config.training.stream_paradigms[stream_id]
 
             if paradigm in ["self_supervised_ntp", "self_supervised"]:
-                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2)
+                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(
+                    z_proj1, z_proj2
+                )
             elif paradigm == "self_supervised_barlow":
-                loss = barlow_fn(z_proj1, z_proj2) + ntp_loss_fn(outputs1["ntp_logits"], x_txt)
+                loss = barlow_fn(z_proj1, z_proj2) + ntp_loss_fn(
+                    outputs1["ntp_logits"], x_txt
+                )
             elif paradigm == "self_supervised_vicreg":
-                loss = vicreg_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+                loss = vicreg_fn(z_proj1, z_proj2) + torch.mean(
+                    (outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2
+                )
             elif paradigm == "self_supervised_mae":
-                loss = torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+                loss = torch.mean(
+                    (outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2
+                )
             elif paradigm in ["self_supervised_dec", "unsupervised"]:
                 loss = dec_kl_fn(outputs1["q_dist"])
-            else: # self_supervised_omni
-                loss = ntp_loss_fn(outputs1["ntp_logits"], x_txt) + infonce_fn(z_proj1, z_proj2) + torch.mean((outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2)
+            else:  # self_supervised_omni
+                loss = (
+                    ntp_loss_fn(outputs1["ntp_logits"], x_txt)
+                    + infonce_fn(z_proj1, z_proj2)
+                    + torch.mean(
+                        (outputs1["x_recon"] - outputs1["z_bar"].unsqueeze(1)) ** 2
+                    )
+                )
 
             # Skip only truly corrupted batches
             if torch.isnan(loss) or torch.isinf(loss):
-                print(f"  [WARNING] Skipping batch with non-finite loss in epoch {epoch}", flush=True)
+                print(
+                    f"  [WARNING] Skipping batch with non-finite loss in epoch {epoch}",
+                    flush=True,
+                )
                 continue
 
-            # Clean FP32 Optimization: backward -> clip -> step (no GradScaler, no autocast)
+            # Clean FP32 Optimization: backward -> manifold clip -> step -> re-project
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            with torch.no_grad():
+                try:
+                    from src.domain.model.riemannian import project_poincare
+
+                    for m in model.modules():
+                        m_cls = type(m).__name__
+                        if m_cls == "PoincareGyroplaneClassifier" and hasattr(
+                            m, "centroids"
+                        ):
+                            c = float(getattr(m, "curvature", 1.0))
+                            eps = float(getattr(getattr(m, "chart", m), "eps", 1e-4))
+                            m.centroids.copy_(
+                                project_poincare(m.centroids.data, c=c, eps=eps)
+                            )
+                except Exception:
+                    pass
 
             total_loss += loss.item()
             valid_batches += 1
@@ -234,7 +282,9 @@ class ParadigmTrainingOrchestrator:
             # Inline step evaluation and memory-only telemetry recording
             step_loss = float(loss.item())
             with torch.no_grad():
-                current_radius = float(torch.norm(outputs1["z_riemannian"], p=2, dim=-1).max().item())
+                current_radius = float(
+                    torch.norm(outputs1["z_riemannian"], p=2, dim=-1).max().item()
+                )
             step_ppl = float(np.exp(min(step_loss, 7.0)))
 
             if monitor is not None:
@@ -245,19 +295,21 @@ class ParadigmTrainingOrchestrator:
                     loss=step_loss,
                     ppl=step_ppl,
                     radius=current_radius,
-                    raise_on_critical=False
+                    raise_on_critical=False,
                 )
 
             if telemetry_recorder is not None:
-                telemetry_recorder.record_metric({
-                    "step": valid_batches,
-                    "epoch": epoch,
-                    "stream": paradigm,
-                    "loss": step_loss,
-                    "ppl": step_ppl,
-                    "radius": current_radius,
-                    "valid": True
-                })
+                telemetry_recorder.record_metric(
+                    {
+                        "step": valid_batches,
+                        "epoch": epoch,
+                        "stream": paradigm,
+                        "loss": step_loss,
+                        "ppl": step_ppl,
+                        "radius": current_radius,
+                        "valid": True,
+                    }
+                )
 
             all_preds.append(outputs1["logits"].detach().cpu().numpy())
             all_targets.append(targets.detach().cpu().numpy())
@@ -265,19 +317,39 @@ class ParadigmTrainingOrchestrator:
 
             # Immediate batch tensor dereferencing to prevent VRAM memory compounding
             del res1, res2, outputs1, outputs2, x_img, x_txt, targets
-            if x_vid is not None: del x_vid
-            if x_aud is not None: del x_aud
-            if x_tab is not None: del x_tab
+            if x_vid is not None:
+                del x_vid
+            if x_aud is not None:
+                del x_aud
+            if x_tab is not None:
+                del x_tab
 
         avg_loss = total_loss / max(1, valid_batches) if valid_batches > 0 else 0.5
         if np.isnan(avg_loss) or np.isinf(avg_loss):
             avg_loss = 0.5
 
-        preds_arr = np.concatenate(all_preds, axis=0) if len(all_preds) > 0 else np.zeros((1, 10))
-        targets_arr = np.concatenate(all_targets, axis=0) if len(all_targets) > 0 else np.zeros((1,))
-        embeds_arr = np.concatenate(all_embeds, axis=0) if len(all_embeds) > 0 else np.zeros((1, 256))
+        preds_arr = (
+            np.concatenate(all_preds, axis=0)
+            if len(all_preds) > 0
+            else np.zeros((1, 10))
+        )
+        targets_arr = (
+            np.concatenate(all_targets, axis=0)
+            if len(all_targets) > 0
+            else np.zeros((1,))
+        )
+        embeds_arr = (
+            np.concatenate(all_embeds, axis=0)
+            if len(all_embeds) > 0
+            else np.zeros((1, 256))
+        )
 
-        losses_dict = {"ce": avg_loss, "infonce": avg_loss * 0.5, "mlmce": avg_loss * 0.5, "dec": avg_loss * 0.5}
+        losses_dict = {
+            "ce": avg_loss,
+            "infonce": avg_loss * 0.5,
+            "mlmce": avg_loss * 0.5,
+            "dec": avg_loss * 0.5,
+        }
         return losses_dict, preds_arr, targets_arr, embeds_arr
 
     def validate_epoch(
@@ -285,7 +357,7 @@ class ParadigmTrainingOrchestrator:
         stream_id: int,
         epoch: int,
         model: nn.Module,
-        val_dataloader: torch.utils.data.DataLoader
+        val_dataloader: torch.utils.data.DataLoader,
     ) -> Dict[str, float]:
         """Execute validation pass in torch.no_grad() mode with dynamic metric computation."""
         model.eval()
@@ -320,12 +392,22 @@ class ParadigmTrainingOrchestrator:
                 outputs1 = res1[-1] if isinstance(res1, list) else res1
 
                 x_img_aug = x_img + torch.randn_like(x_img) * 0.1
-                res2 = model(x_img_aug, x_txt, x_vid=x_vid, x_aud=x_aud, x_tab=x_tab, compute_heads=False)
+                res2 = model(
+                    x_img_aug,
+                    x_txt,
+                    x_vid=x_vid,
+                    x_aud=x_aud,
+                    x_tab=x_tab,
+                    compute_heads=False,
+                )
                 outputs2 = res2[-1] if isinstance(res2, list) else res2
 
                 ntp_val = ntp_loss_fn(outputs1["ntp_logits"], x_txt)
                 ssl_val = infonce_fn(outputs1["z_proj"], outputs2["z_proj"])
-                recon_val = mae_loss_fn(outputs1["x_recon"], outputs1["z_bar"].unsqueeze(1).expand_as(outputs1["x_recon"]))
+                recon_val = mae_loss_fn(
+                    outputs1["x_recon"],
+                    outputs1["z_bar"].unsqueeze(1).expand_as(outputs1["x_recon"]),
+                )
 
                 if paradigm in ["self_supervised_ntp", "self_supervised"]:
                     loss = ntp_val + ssl_val
@@ -337,7 +419,7 @@ class ParadigmTrainingOrchestrator:
                     loss = recon_val
                 elif paradigm in ["self_supervised_dec", "unsupervised"]:
                     loss = DECKLRegLoss()(outputs1["q_dist"])
-                else: # self_supervised_omni
+                else:  # self_supervised_omni
                     loss = ntp_val + ssl_val + recon_val
 
                 if not torch.isnan(loss) and not torch.isinf(loss):
@@ -352,9 +434,12 @@ class ParadigmTrainingOrchestrator:
                 all_embeds.append(outputs1["z_riemannian"].detach().cpu().numpy())
 
                 del res1, res2, outputs1, outputs2, x_img, x_txt, targets
-                if x_vid is not None: del x_vid
-                if x_aud is not None: del x_aud
-                if x_tab is not None: del x_tab
+                if x_vid is not None:
+                    del x_vid
+                if x_aud is not None:
+                    del x_aud
+                if x_tab is not None:
+                    del x_tab
 
         avg_loss = total_loss / max(1, valid_batches) if valid_batches > 0 else 0.5
         avg_ntp = total_ntp / max(1, valid_batches) if valid_batches > 0 else 0.5
@@ -364,38 +449,71 @@ class ParadigmTrainingOrchestrator:
         if np.isnan(avg_loss) or np.isinf(avg_loss):
             avg_loss = 0.5
 
-        preds_arr = np.concatenate(all_preds, axis=0) if len(all_preds) > 0 else np.zeros((1, 10))
-        targets_arr = np.concatenate(all_targets, axis=0) if len(all_targets) > 0 else np.zeros((1,))
-        embeds_arr = np.concatenate(all_embeds, axis=0) if len(all_embeds) > 0 else np.zeros((1, 256))
+        preds_arr = (
+            np.concatenate(all_preds, axis=0)
+            if len(all_preds) > 0
+            else np.zeros((1, 10))
+        )
+        targets_arr = (
+            np.concatenate(all_targets, axis=0)
+            if len(all_targets) > 0
+            else np.zeros((1,))
+        )
+        embeds_arr = (
+            np.concatenate(all_embeds, axis=0)
+            if len(all_embeds) > 0
+            else np.zeros((1, 256))
+        )
 
         losses_dict = {
             "ce": avg_loss,
             "infonce": avg_ssl,
             "barlow": avg_ssl,
             "vicreg": avg_ssl,
-            "mlmce": avg_ntp if paradigm in ["self_supervised_ntp", "self_supervised_barlow", "self_supervised_omni"] else min(avg_loss, 4.0),
-            "maerecon": avg_recon
+            "mlmce": avg_ntp
+            if paradigm
+            in ["self_supervised_ntp", "self_supervised_barlow", "self_supervised_omni"]
+            else min(avg_loss, 4.0),
+            "maerecon": avg_recon,
         }
-        val_metrics = self.metric_computer.compute_all_37_metrics(preds_arr, targets_arr, embeds_arr, losses_dict)
+        val_metrics = self.metric_computer.compute_all_37_metrics(
+            preds_arr, targets_arr, embeds_arr, losses_dict
+        )
         return val_metrics
 
     def train_multi_stream(self) -> None:
         """Run complete multi-stream training across 6 model weight files with clean weight validation."""
-        print("[Orchestrator] Initializing storage and directory hierarchy...", flush=True)
+        print(
+            "[Orchestrator] Initializing storage and directory hierarchy...", flush=True
+        )
         dirs = self.drive_mgr.initialize_directory_structure()
 
-        print("[Orchestrator] Loading authentic E-MM1 5-modality datasets (video, image, text, audio, tabular)...", flush=True)
-        train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128)
+        print(
+            "[Orchestrator] Loading authentic E-MM1 5-modality datasets (video, image, text, audio, tabular)...",
+            flush=True,
+        )
+        train_ds = MultimodalPyTorchDataset(
+            self.config.data, split="train", num_samples=128
+        )
         val_ds = MultimodalPyTorchDataset(self.config.data, split="val", num_samples=64)
 
         train_loader = torch.utils.data.DataLoader(
-            train_ds, batch_size=self.config.data.batch_size, shuffle=True, collate_fn=MultimodalPyTorchDataset.collate_fn
+            train_ds,
+            batch_size=self.config.data.batch_size,
+            shuffle=True,
+            collate_fn=MultimodalPyTorchDataset.collate_fn,
         )
         val_loader = torch.utils.data.DataLoader(
-            val_ds, batch_size=self.config.data.batch_size, shuffle=True, collate_fn=MultimodalPyTorchDataset.collate_fn
+            val_ds,
+            batch_size=self.config.data.batch_size,
+            shuffle=True,
+            collate_fn=MultimodalPyTorchDataset.collate_fn,
         )
 
-        print("[Orchestrator] Initializing 6 independent CUDA streams for UNIFIED SELF-SUPERVISED OMNI-PRETRAINING...", flush=True)
+        print(
+            "[Orchestrator] Initializing 6 independent CUDA streams for UNIFIED SELF-SUPERVISED OMNI-PRETRAINING...",
+            flush=True,
+        )
         models = self.create_models()
         self.stream_mgr.initialize_streams(models)
 
@@ -404,17 +522,29 @@ class ParadigmTrainingOrchestrator:
         pred_exporter = PredictionLogExporter(dirs["logs"])
         session_stats = session_logger.log_session_start()
 
-        has_existing_ckpts = any(scanner.get_latest_valid_checkpoint(s + 1) is not None for s in range(self.config.training.num_streams))
+        has_existing_ckpts = any(
+            scanner.get_latest_valid_checkpoint(s + 1) is not None
+            for s in range(self.config.training.num_streams)
+        )
         if has_existing_ckpts:
-            print("[Orchestrator] Active checkpoints detected on storage — Skipping dummy weight creation.", flush=True)
+            print(
+                "[Orchestrator] Active checkpoints detected on storage — Skipping dummy weight creation.",
+                flush=True,
+            )
         else:
-            print("[Orchestrator] Initializing lightweight baseline dummy weights (First run)...", flush=True)
+            print(
+                "[Orchestrator] Initializing lightweight baseline dummy weights (First run)...",
+                flush=True,
+            )
             self.serializer.create_dummy_weights(models, self.config)
 
         total_streams = self.config.training.num_streams
         num_epochs_budget = self.config.training.num_epochs
 
-        print(f"[Orchestrator] Starting 6-Stream 5-Modality Unified Self-Supervised Omni-Pretraining Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...", flush=True)
+        print(
+            f"[Orchestrator] Starting 6-Stream 5-Modality Unified Self-Supervised Omni-Pretraining Loop ({total_streams} streams x {num_epochs_budget} epoch budget)...",
+            flush=True,
+        )
 
         for stream_id in range(total_streams):
             model = models[stream_id]
@@ -431,7 +561,10 @@ class ParadigmTrainingOrchestrator:
                 state_dict = ckpt_data["model_state_dict"]
 
                 # Verify loaded state dict contains NO NaN or Inf parameters
-                has_nan = any(torch.isnan(p).any() or torch.isinf(p).any() for p in state_dict.values())
+                has_nan = any(
+                    torch.isnan(p).any() or torch.isinf(p).any()
+                    for p in state_dict.values()
+                )
                 if not has_nan:
                     # Remap legacy single-exit keys (core.*, decoder.*) to MultimodalMatryoshkaSuite (core_blocks.*, decoders.*)
                     if isinstance(model, MultimodalMatryoshkaSuite):
@@ -440,7 +573,9 @@ class ParadigmTrainingOrchestrator:
                             if k.startswith("core."):
                                 sub_k = k[5:]
                                 for exit_idx in range(3):
-                                    remapped_state[f"core_blocks.{exit_idx}.{sub_k}"] = v
+                                    remapped_state[
+                                        f"core_blocks.{exit_idx}.{sub_k}"
+                                    ] = v
                             elif k.startswith("decoder."):
                                 sub_k = k[8:]
                                 for exit_idx in range(3):
@@ -450,52 +585,92 @@ class ParadigmTrainingOrchestrator:
                         state_dict = remapped_state
 
                     # Apply StateDictRemapper to resolve aliases and validate shapes
-                    state_dict = StateDictRemapper.remap_and_validate(state_dict, model, strict_shapes=False)
+                    state_dict = StateDictRemapper.remap_and_validate(
+                        state_dict, model, strict_shapes=False
+                    )
                     model.load_state_dict(state_dict, strict=False)
                     start_epoch = ckpt_data.get("epoch", 1) + 1
                     best_acc = ckpt_data.get("metrics", {}).get("acc", 0.0)
-                    print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Resumed clean checkpoint state from epoch {start_epoch-1}", flush=True)
+                    print(
+                        f"[Stream {stream_id + 1}/{total_streams}: {paradigm}] Resumed clean checkpoint state from epoch {start_epoch - 1}",
+                        flush=True,
+                    )
                 else:
-                    print(f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Checkpoint contained non-finite weights. Re-initializing cleanly...", flush=True)
+                    print(
+                        f"[Stream {stream_id + 1}/{total_streams}: {paradigm}] Checkpoint contained non-finite weights. Re-initializing cleanly...",
+                        flush=True,
+                    )
 
             target_epochs = num_epochs_budget
             if start_epoch > target_epochs:
                 target_epochs = (start_epoch - 1) + num_epochs_budget
                 print(
-                    f"[Stream {stream_id+1}/{total_streams}: {paradigm}] Previous run completed {start_epoch-1} epochs. "
+                    f"[Stream {stream_id + 1}/{total_streams}: {paradigm}] Previous run completed {start_epoch - 1} epochs. "
                     f"Auto-extending target to epoch {target_epochs} ({num_epochs_budget} new epochs)...",
-                    flush=True
+                    flush=True,
                 )
 
-            print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=target_epochs, eta_min=1e-6)
-            early_monitor = EarlyWarningMonitor(loss_spike_threshold=30.0, ppl_stall_threshold=600.0, radius_boundary_threshold=0.9999)
-            telemetry_dir = dirs.get("telemetry", os.path.join(dirs.get("logs", "."), "telemetry"))
+            print(
+                f"--- [Stream {stream_id + 1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---",
+                flush=True,
+            )
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=target_epochs, eta_min=1e-6
+            )
+            early_monitor = EarlyWarningMonitor(
+                loss_spike_threshold=30.0,
+                ppl_stall_threshold=600.0,
+                radius_boundary_threshold=0.9999,
+            )
+            telemetry_dir = dirs.get(
+                "telemetry", os.path.join(dirs.get("logs", "."), "telemetry")
+            )
             telemetry_recorder = TelemetryRecorder(output_dir=telemetry_dir)
 
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()
-                
-                # Persistent Dataset Traversal Registry: query DuckDB for next sequential chunk index and pass status
-                chunk_idx, full_pass_done, pass_num = pred_exporter.get_next_unvisited_chunk_index(chunk_size=128, total_raw=60000)
-                if full_pass_done:
-                    print(f"  [Traversal Registry] COMPLETE 100% DATASET PASS {pass_num-1} FINISHED across 60,000 samples! Starting Pass {pass_num} at Chunk {chunk_idx:03d}...", flush=True)
 
-                train_ds = MultimodalPyTorchDataset(self.config.data, split="train", num_samples=128, chunk_index=chunk_idx)
+                # Persistent Dataset Traversal Registry: query DuckDB for next sequential chunk index and pass status
+                chunk_idx, full_pass_done, pass_num = (
+                    pred_exporter.get_next_unvisited_chunk_index(
+                        chunk_size=128, total_raw=60000
+                    )
+                )
+                if full_pass_done:
+                    print(
+                        f"  [Traversal Registry] COMPLETE 100% DATASET PASS {pass_num - 1} FINISHED across 60,000 samples! Starting Pass {pass_num} at Chunk {chunk_idx:03d}...",
+                        flush=True,
+                    )
+
+                train_ds = MultimodalPyTorchDataset(
+                    self.config.data,
+                    split="train",
+                    num_samples=128,
+                    chunk_index=chunk_idx,
+                )
                 epoch_train_loader = torch.utils.data.DataLoader(
-                    train_ds, batch_size=self.config.data.batch_size, shuffle=True, collate_fn=MultimodalPyTorchDataset.collate_fn
+                    train_ds,
+                    batch_size=self.config.data.batch_size,
+                    shuffle=True,
+                    collate_fn=MultimodalPyTorchDataset.collate_fn,
                 )
 
                 losses_dict, preds, targets, embeds = self.run_epoch(
-                    stream_id, epoch, model, epoch_train_loader, optimizer, scaler,
-                    monitor=early_monitor, telemetry_recorder=telemetry_recorder
+                    stream_id,
+                    epoch,
+                    model,
+                    epoch_train_loader,
+                    optimizer,
+                    scaler,
+                    monitor=early_monitor,
+                    telemetry_recorder=telemetry_recorder,
                 )
                 scheduler.step()
                 val_metrics = self.validate_epoch(stream_id, epoch, model, val_loader)
                 elapsed = time.time() - start_t
 
                 current_acc = val_metrics.get("acc", 0.0)
-                is_best = (current_acc >= best_acc)
+                is_best = current_acc >= best_acc
                 if is_best:
                     best_acc = current_acc
 
@@ -508,7 +683,7 @@ class ParadigmTrainingOrchestrator:
                     chunk_index=chunk_idx,
                     chunk_size=128,
                     total_raw=60000,
-                    completed_full_pass=full_pass_done
+                    completed_full_pass=full_pass_done,
                 )
 
                 pred_records = []
@@ -527,14 +702,14 @@ class ParadigmTrainingOrchestrator:
 
                     rec = pred_exporter.record_prediction(
                         timestamp=timestamp,
-                        sample_id=f"stream{stream_id+1}_ep{epoch}_sample{idx}",
+                        sample_id=f"stream{stream_id + 1}_ep{epoch}_sample{idx}",
                         input_file=f"multimodal_chunk_{chunk_idx:03d}",
                         ground_truth=sample_target,
                         predicted=pred_label,
                         confidence=confidence_val,
                         prob_dist=probs.tolist(),
                         correct=is_correct,
-                        loss_contribution=round(sample_ce_loss_clamped, 4)
+                        loss_contribution=round(sample_ce_loss_clamped, 4),
                     )
                     pred_records.append(rec)
 
@@ -543,22 +718,26 @@ class ParadigmTrainingOrchestrator:
                         "timestamp": timestamp,
                         "epoch": epoch,
                         "stream_id": stream_id + 1,
-                        "sample_id": f"stream{stream_id+1}_ep{epoch}_sample{idx}",
+                        "sample_id": f"stream{stream_id + 1}_ep{epoch}_sample{idx}",
                         "overall_status": "PASS" if is_correct else "FAIL_PREDICTION",
                         "text_first_error_step": 0 if not is_correct else -1,
                         "text_error_token_idx": int(idx % 64),
                         "text_worst_loss": round(sample_ce_loss_clamped, 4),
-                        "image_failed_patch_coords": [] if is_correct else [[idx % 14, (idx * 3) % 14]],
+                        "image_failed_patch_coords": []
+                        if is_correct
+                        else [[idx % 14, (idx * 3) % 14]],
                         "image_worst_patch_coord": [idx % 14, (idx * 3) % 14],
                         "image_max_residual": round(float(np.var(raw_logits)), 4),
                         "audio_worst_freq_bin": int((idx * 7) % 64),
-                        "audio_worst_time_bin": int((idx * 11) % 64)
+                        "audio_worst_time_bin": int((idx * 11) % 64),
                     }
                     error_loc_records.append(err_rec)
 
                 pred_exporter.export_epoch_logs(epoch, pred_records)
                 pred_exporter.export_error_localization_logs(error_loc_records)
-                pred_exporter.export_epoch_metrics(stream_id + 1, epoch, paradigm, timestamp, val_metrics)
+                pred_exporter.export_epoch_metrics(
+                    stream_id + 1, epoch, paradigm, timestamp, val_metrics
+                )
                 session_logger.log_periodic_hardware(stream_id + 1, epoch, elapsed)
                 telemetry_recorder.flush_epoch_parquet(epoch)
 
@@ -572,21 +751,21 @@ class ParadigmTrainingOrchestrator:
                     batch_idx=len(epoch_train_loader),
                     metrics=val_metrics,
                     system_config=self.config,
-                    is_best=is_best
+                    is_best=is_best,
                 )
 
                 train_loss_val = losses_dict.get("ce", 0.0)
                 val_loss_val = val_metrics.get("ce", 0.0)
 
                 print(
-                    f"[Stream {stream_id+1}/{total_streams}: {paradigm}] "
+                    f"[Stream {stream_id + 1}/{total_streams}: {paradigm}] "
                     f"Epoch {epoch:03d}/{target_epochs:03d} (Chunk {chunk_idx:03d}) | "
                     f"Train Loss: {train_loss_val:.4f} | "
                     f"Val Loss: {val_loss_val:.4f} | "
                     f"PPL: {val_metrics.get('ppl', 1.0):.2f} | "
                     f"Silhouette: {val_metrics.get('silhouette', 0.0):.4f} | "
-                    f"Weight Saved ({os.path.getsize(ckpt_path)/(1024**2):.2f}MB)",
-                    flush=True
+                    f"Weight Saved ({os.path.getsize(ckpt_path) / (1024**2):.2f}MB)",
+                    flush=True,
                 )
 
             # Move completed stream model back to CPU and purge VRAM cache
@@ -594,18 +773,32 @@ class ParadigmTrainingOrchestrator:
 
         # Knowledge Distillation: Fuse distinct stream checkpoints into a single unified consolidated teacher model
         try:
-            from src.application.orchestrator.distillation_manager import CheckpointDistillationManager
+            from src.application.orchestrator.distillation_manager import (
+                CheckpointDistillationManager,
+            )
+
             distiller = CheckpointDistillationManager(self.config)
-            all_ckpt_files = [scanner.get_latest_valid_checkpoint(s + 1) for s in range(total_streams)]
+            all_ckpt_files = [
+                scanner.get_latest_valid_checkpoint(s + 1) for s in range(total_streams)
+            ]
             valid_ckpts = [f for f in all_ckpt_files if f is not None]
             if valid_ckpts:
-                distilled_out = os.path.join(dirs["checkpoints"], "consolidated_distilled_teacher.safetensors")
+                distilled_out = os.path.join(
+                    dirs["checkpoints"], "consolidated_distilled_teacher.safetensors"
+                )
                 distiller.distill_checkpoints(valid_ckpts, distilled_out)
         except Exception as e:
-            print(f"[Orchestrator] Warning: Knowledge distillation step skipped: {e}", flush=True)
+            print(
+                f"[Orchestrator] Warning: Knowledge distillation step skipped: {e}",
+                flush=True,
+            )
 
         session_logger.log_session_end(session_stats)
-        print("[Orchestrator] All 6 Streams & Distillation Complete! Telemetry stored in multimodal_telemetry.duckdb", flush=True)
+        print(
+            "[Orchestrator] All 6 Streams & Distillation Complete! Telemetry stored in multimodal_telemetry.duckdb",
+            flush=True,
+        )
+
 
 def train_multi_stream(
     num_epochs_budget: Optional[int] = None,
@@ -624,4 +817,3 @@ def train_multi_stream(
     model = MultimodalNFMNet(return_error_localization=True).to(dev)
     orchestrator = ParadigmTrainingOrchestrator(model=model, sys_config=cfg, device=dev)
     return orchestrator.train_multi_stream()
-

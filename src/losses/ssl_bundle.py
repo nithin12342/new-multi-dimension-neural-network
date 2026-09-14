@@ -23,12 +23,13 @@ from src.domain.loss.losses import (
 )
 from src.domain.loss.ssl_bundle import MultimodalSSLBundle
 
+
 def clamped_infonce(
     z1: torch.Tensor,
     z2: torch.Tensor,
     temperature: float = 0.07,
     clamp_min: float = -10.8,
-    clamp_max: float = 10.8
+    clamp_max: float = 10.8,
 ) -> torch.Tensor:
     """Compute InfoNCE contrastive loss with strict logit clamping to prevent FP16 overflow."""
     z1_norm = F.normalize(z1, p=2, dim=-1)
@@ -38,26 +39,26 @@ def clamped_infonce(
     targets = torch.arange(sim_clamped.size(0), device=sim_clamped.device)
     return F.cross_entropy(sim_clamped, targets)
 
+
 def vicreg_variance_hinge(
-    z: torch.Tensor,
-    gamma: float = 1.0,
-    eps: float = 1e-4
+    z: torch.Tensor, gamma: float = 1.0, eps: float = 1e-4
 ) -> torch.Tensor:
     """Compute VICReg variance hinge loss: mean(max(0, gamma - std(z_j)))."""
     std = torch.sqrt(z.var(dim=0) + eps)
     return torch.mean(F.relu(gamma - std))
 
+
 def poincare_boundary_clip(
     x: torch.Tensor,
     c: float = 1.0,
     eps: float = 1e-4,
-    max_conformal_scale: float = 1000.0
+    max_conformal_scale: float = 1000.0,
 ) -> torch.Tensor:
-    """Projects vectors onto the Poincare ball with strict radius clipping ||x|| <= 1 - eps."""
-    max_norm = 1.0 - eps
-    norm = torch.norm(x, p=2, dim=-1, keepdim=True).clamp(min=1e-7)
-    scale = torch.clamp(max_norm / norm, max=1.0)
-    return x * scale
+    """Projects vectors onto the Poincare ball: ||x|| <= (1 - eps) / sqrt(c)."""
+    from src.domain.model.riemannian import project_poincare
+
+    return project_poincare(x, c=c, eps=eps)
+
 
 __all__ = [
     "MultimodalSSLBundle",

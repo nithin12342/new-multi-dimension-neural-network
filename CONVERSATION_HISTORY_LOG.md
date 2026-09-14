@@ -346,6 +346,14 @@ It provides **100% continuity** for any AI agent, developer, or automated pipeli
 - **Root Cause:** When `training_loop.py` imported `src.engine.monitor`, Python loaded the `src.engine` package whose `__init__.py` eagerly imported `ParadigmTrainingOrchestrator` from `training_loop.py` before `training_loop.py` finished defining the class.
 - **Solution Implemented:** (1) Implemented dynamic lazy module attribute resolution via `__getattr__` and `__dir__` in [`src/engine/__init__.py`](src/engine/__init__.py) for `ParadigmTrainingOrchestrator`, `MultimodalNFMNet`, and `train_multi_stream`; (2) Verified clean non-circular import of `train_omni.py` and `src.engine` exports; (3) Confirmed all 63/63 tests passing across Rust and Python.
 
+---
+
+### 🔹 Session 67: Fix KeyError 'telemetry' in Directory Structure and Training Loop
+- **User Request:** Fix KeyError 'telemetry' in `train_multi_stream` line 473 (`telemetry_recorder = TelemetryRecorder(output_dir=dirs["telemetry"])`).
+- **Root Cause:** `GoogleDriveManager.initialize_directory_structure()` in [`src/infrastructure/storage/drive_manager.py`](src/infrastructure/storage/drive_manager.py) defined subdirectories for logs, checkpoints, datasets, metrics, etc., but omitted the `"telemetry"` key, causing `dirs["telemetry"]` to raise `KeyError`.
+- **Solution Implemented:** (1) Added `"telemetry": os.path.join(base, "telemetry")` and `"parquet_telemetry": os.path.join(base, "telemetry", "parquet")` to `subdirs` in `GoogleDriveManager`; (2) Updated [`src/application/orchestrator/training_loop.py`](src/application/orchestrator/training_loop.py) to safely resolve `telemetry_dir = dirs.get("telemetry", os.path.join(dirs.get("logs", "."), "telemetry"))`; (3) Verified that `drive_manager.initialize_directory_structure()` creates and returns the `"telemetry"` path cleanly; (4) Verified all 63/63 tests passing across Rust and Python.
+
+
 
 
 

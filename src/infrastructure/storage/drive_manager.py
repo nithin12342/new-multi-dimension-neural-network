@@ -74,6 +74,8 @@ class GoogleDriveManager:
             "classification_reports": os.path.join(base, "classification_reports"),
             "tensorboard": os.path.join(base, "tensorboard"),
             "visualizations": os.path.join(base, "visualizations"),
+            "telemetry": os.path.join(base, "telemetry"),
+            "parquet_telemetry": os.path.join(base, "telemetry", "parquet"),
         }
 
         # Add 6 model checkpoint sub-directories

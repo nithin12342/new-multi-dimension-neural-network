@@ -470,7 +470,8 @@ class ParadigmTrainingOrchestrator:
             print(f"--- [Stream {stream_id+1}/{total_streams}: {paradigm.upper()}] Active (Epochs {start_epoch} to {target_epochs}) ---", flush=True)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=target_epochs, eta_min=1e-6)
             early_monitor = EarlyWarningMonitor(loss_spike_threshold=30.0, ppl_stall_threshold=600.0, radius_boundary_threshold=0.9999)
-            telemetry_recorder = TelemetryRecorder(output_dir=dirs["telemetry"])
+            telemetry_dir = dirs.get("telemetry", os.path.join(dirs.get("logs", "."), "telemetry"))
+            telemetry_recorder = TelemetryRecorder(output_dir=telemetry_dir)
 
             for epoch in range(start_epoch, target_epochs + 1):
                 start_t = time.time()

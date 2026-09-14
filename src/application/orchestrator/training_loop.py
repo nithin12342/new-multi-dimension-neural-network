@@ -532,6 +532,9 @@ class ParadigmTrainingOrchestrator:
                 flush=True,
             )
         else:
+            # Fresh start (no resumable weights): stale traversal rows from
+            # previous runs would resume mid-dataset, so reset to Chunk 000.
+            pred_exporter.reset_traversal_history()
             print(
                 "[Orchestrator] Initializing lightweight baseline dummy weights (First run)...",
                 flush=True,

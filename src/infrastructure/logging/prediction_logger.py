@@ -10,6 +10,7 @@ import json
 import subprocess
 from typing import List, Dict, Any, Tuple
 
+
 class PredictionLogExporter:
     """
     Detailed Per-Epoch Sample Prediction, 37-Metric & Persistent Dataset Traversal Logger
@@ -27,7 +28,7 @@ class PredictionLogExporter:
     def _ensure_duckdb_installed(self) -> None:
         """Ensure duckdb python package is available in the current environment."""
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
         except ImportError:
             try:
                 subprocess.check_call(["pip", "install", "duckdb", "--quiet"])
@@ -37,9 +38,10 @@ class PredictionLogExporter:
     def _init_db_schema(self) -> None:
         """Initialize DuckDB table schemas for predictions, 37 evaluation metrics, and dataset traversal history."""
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
-            
+
             # 1. Predictions Table
             con.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
@@ -110,24 +112,37 @@ class PredictionLogExporter:
             """)
 
             con.close()
-            print(f"[DuckDB Logger] Consolidated database initialized with traversal registry & error localization: {self.db_path}", flush=True)
+            print(
+                f"[DuckDB Logger] Consolidated database initialized with traversal registry & error localization: {self.db_path}",
+                flush=True,
+            )
         except Exception as e:
-            print(f"[DuckDB Logger] Warning initializing consolidated schema: {e}", flush=True)
+            print(
+                f"[DuckDB Logger] Warning initializing consolidated schema: {e}",
+                flush=True,
+            )
 
-    def get_next_unvisited_chunk_index(self, chunk_size: int = 128, total_raw: int = 60000) -> Tuple[int, bool, int]:
+    def get_next_unvisited_chunk_index(
+        self, chunk_size: int = 128, total_raw: int = 60000
+    ) -> Tuple[int, bool, int]:
         """
         Query DuckDB dataset_traversal_history to find the NEXT dataset chunk index.
         Calculates exact current pass number and returns (chunk_index, just_completed_pass, pass_number).
         Guarantees dataset traversal progresses sequentially through Chunk 000, 001, ..., max_chunks-1 per pass!
         """
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
-            res = con.execute("SELECT COUNT(*) FROM dataset_traversal_history").fetchone()
+            res = con.execute(
+                "SELECT COUNT(*) FROM dataset_traversal_history"
+            ).fetchone()
             total_logged = res[0] if res else 0
             con.close()
 
-            max_chunks = max(1, total_raw // chunk_size) # 468 chunks for 60,000 samples @ 128 batch size
+            max_chunks = max(
+                1, total_raw // chunk_size
+            )  # 468 chunks for 60,000 samples @ 128 batch size
             current_chunk_idx = total_logged % max_chunks
             pass_number = (total_logged // max_chunks) + 1
             just_completed_pass = (total_logged > 0) and (current_chunk_idx == 0)
@@ -135,6 +150,27 @@ class PredictionLogExporter:
             return current_chunk_idx, just_completed_pass, pass_number
         except Exception as e:
             return 0, False, 1
+
+    def reset_traversal_history(self) -> None:
+        """Clear the persistent traversal registry so a fresh run starts at Chunk 000.
+
+        Called once when training starts with no resumable checkpoint. Never
+        called on resume: mid-dataset continuation must keep its position.
+        """
+        try:
+            import duckdb  # type: ignore
+
+            con = duckdb.connect(self.db_path, read_only=False)
+            con.execute("DELETE FROM dataset_traversal_history")
+            con.close()
+            print(
+                "[DuckDB Logger] Traversal registry reset: next run starts at Chunk 000.",
+                flush=True,
+            )
+        except Exception as e:
+            print(
+                f"[DuckDB Logger] Warning resetting traversal registry: {e}", flush=True
+            )
 
     def log_traversal_chunk(
         self,
@@ -144,22 +180,38 @@ class PredictionLogExporter:
         chunk_index: int,
         chunk_size: int = 128,
         total_raw: int = 60000,
-        completed_full_pass: bool = False
+        completed_full_pass: bool = False,
     ) -> None:
         """Record batch traversal chunk in dataset_traversal_history DuckDB table."""
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
             start_idx = chunk_index * chunk_size
             end_idx = min(start_idx + chunk_size, total_raw)
 
-            con.execute("""
+            con.execute(
+                """
                 INSERT INTO dataset_traversal_history VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (timestamp, stream_id, epoch, chunk_index, start_idx, end_idx, total_raw, completed_full_pass))
+            """,
+                (
+                    timestamp,
+                    stream_id,
+                    epoch,
+                    chunk_index,
+                    start_idx,
+                    end_idx,
+                    total_raw,
+                    completed_full_pass,
+                ),
+            )
 
             con.close()
         except Exception as e:
-            print(f"[DuckDB Logger] Error logging dataset traversal chunk: {e}", flush=True)
+            print(
+                f"[DuckDB Logger] Error logging dataset traversal chunk: {e}",
+                flush=True,
+            )
 
     def record_prediction(
         self,
@@ -171,7 +223,7 @@ class PredictionLogExporter:
         confidence: float,
         prob_dist: List[float],
         correct: bool,
-        loss_contribution: float
+        loss_contribution: float,
     ) -> Dict[str, Any]:
         """Format individual sample prediction dictionary."""
         return {
@@ -183,7 +235,7 @@ class PredictionLogExporter:
             "confidence": round(float(confidence), 4),
             "prob_dist": json.dumps([round(float(p), 4) for p in prob_dist]),
             "correct": bool(correct),
-            "loss_contribution": round(float(loss_contribution), 4)
+            "loss_contribution": round(float(loss_contribution), 4),
         }
 
     def export_epoch_logs(self, epoch: int, predictions: List[Dict[str, Any]]) -> str:
@@ -192,7 +244,8 @@ class PredictionLogExporter:
             return self.db_path
 
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
 
             rows = [
@@ -204,20 +257,28 @@ class PredictionLogExporter:
                     p["ground_truth"],
                     p["predicted"],
                     p["confidence"],
-                    p.get("prob_dist", "[]") if isinstance(p.get("prob_dist"), str) else json.dumps(p.get("prob_dist", [])),
+                    p.get("prob_dist", "[]")
+                    if isinstance(p.get("prob_dist"), str)
+                    else json.dumps(p.get("prob_dist", [])),
                     p["correct"],
-                    p["loss_contribution"]
+                    p["loss_contribution"],
                 )
                 for p in predictions
             ]
 
-            con.executemany("""
+            con.executemany(
+                """
                 INSERT INTO predictions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, rows)
+            """,
+                rows,
+            )
 
             con.close()
         except Exception as e:
-            print(f"[DuckDB Logger] Error appending predictions to {self.db_path}: {e}", flush=True)
+            print(
+                f"[DuckDB Logger] Error appending predictions to {self.db_path}: {e}",
+                flush=True,
+            )
 
         return self.db_path
 
@@ -227,11 +288,12 @@ class PredictionLogExporter:
         epoch: int,
         paradigm: str,
         timestamp: str,
-        metrics: Dict[str, Any]
+        metrics: Dict[str, Any],
     ) -> str:
         """Appends all 37 calculated metrics directly into `epoch_metrics` table in `multimodal_telemetry.duckdb`."""
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
 
             cls_report = f"Accuracy: {metrics.get('acc', 0.0):.4f}, F1: {metrics.get('f1', 0.0):.4f}, Precision: {metrics.get('prec', 0.0):.4f}, Recall: {metrics.get('rec', 0.0):.4f}"
@@ -277,10 +339,11 @@ class PredictionLogExporter:
                 float(metrics.get("loglik", 0.0)),
                 float(metrics.get("loglik_score", 0.0)),
                 float(metrics.get("aic", 0.0)),
-                float(metrics.get("bic", 0.0))
+                float(metrics.get("bic", 0.0)),
             )
 
-            con.execute("""
+            con.execute(
+                """
                 INSERT INTO epoch_metrics VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -288,11 +351,16 @@ class PredictionLogExporter:
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?
                 )
-            """, row)
+            """,
+                row,
+            )
 
             con.close()
         except Exception as e:
-            print(f"[DuckDB Logger] Error exporting epoch metrics to {self.db_path}: {e}", flush=True)
+            print(
+                f"[DuckDB Logger] Error exporting epoch metrics to {self.db_path}: {e}",
+                flush=True,
+            )
 
         return self.db_path
 
@@ -302,7 +370,8 @@ class PredictionLogExporter:
             return self.db_path
 
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
             rows = [
                 (
@@ -318,24 +387,27 @@ class PredictionLogExporter:
                     json.dumps(r.get("image_worst_patch_coord", [])),
                     float(r.get("image_max_residual", 0.0)),
                     int(r.get("audio_worst_freq_bin", -1)),
-                    int(r.get("audio_worst_time_bin", -1))
+                    int(r.get("audio_worst_time_bin", -1)),
                 )
                 for r in records
             ]
-            con.executemany("""
+            con.executemany(
+                """
                 INSERT INTO sample_error_localization VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, rows)
+            """,
+                rows,
+            )
             con.close()
         except Exception as e:
-            print(f"[DuckDB Logger] Error appending error localization records to {self.db_path}: {e}", flush=True)
+            print(
+                f"[DuckDB Logger] Error appending error localization records to {self.db_path}: {e}",
+                flush=True,
+            )
 
         return self.db_path
 
     def export_epoch_metrics_to_parquet(
-        self,
-        epoch: int,
-        metrics_records: List[Dict[str, Any]],
-        parquet_dir: str = None
+        self, epoch: int, metrics_records: List[Dict[str, Any]], parquet_dir: str = None
     ) -> str:
         """
         Export metrics directly to Snappy-compressed Apache Parquet file.
@@ -347,24 +419,29 @@ class PredictionLogExporter:
         parquet_path = os.path.join(parquet_dir, f"epoch_metrics_{epoch:04d}.parquet")
 
         try:
-            import pyarrow as pa # type: ignore
-            import pyarrow.parquet as pq # type: ignore
+            import pyarrow as pa  # type: ignore
+            import pyarrow.parquet as pq  # type: ignore
 
             table = pa.Table.from_pylist(metrics_records)
             pq.write_table(table, parquet_path, compression="snappy")
             return parquet_path
         except Exception as e:
-            print(f"[Parquet Exporter] Warning writing to {parquet_path}: {e}", flush=True)
+            print(
+                f"[Parquet Exporter] Warning writing to {parquet_path}: {e}", flush=True
+            )
             return ""
 
     def register_parquet_views_in_duckdb(self, parquet_dir: str = None) -> None:
         """Register Parquet files as dynamic views in DuckDB for zero-lock querying."""
         if parquet_dir is None:
             parquet_dir = os.path.join(self.output_dir, "parquet_telemetry")
-        
-        glob_path = os.path.join(parquet_dir, "epoch_metrics_*.parquet").replace("\\", "/")
+
+        glob_path = os.path.join(parquet_dir, "epoch_metrics_*.parquet").replace(
+            "\\", "/"
+        )
         try:
-            import duckdb # type: ignore
+            import duckdb  # type: ignore
+
             con = duckdb.connect(self.db_path, read_only=False)
             con.execute(f"""
                 CREATE OR REPLACE VIEW v_epoch_metrics_parquet AS 
@@ -401,8 +478,8 @@ class PyArrowTelemetryBuffer:
 
     def flush_epoch_parquet(self, epoch: int, output_dir: str) -> Dict[str, str]:
         """Flush in-memory buffers to Snappy Parquet files and reset buffers."""
-        import pyarrow as pa # type: ignore
-        import pyarrow.parquet as pq # type: ignore
+        import pyarrow as pa  # type: ignore
+        import pyarrow.parquet as pq  # type: ignore
 
         os.makedirs(output_dir, exist_ok=True)
         flushed_files = {}
@@ -429,4 +506,3 @@ class PyArrowTelemetryBuffer:
             self._error_records.clear()
 
         return flushed_files
-

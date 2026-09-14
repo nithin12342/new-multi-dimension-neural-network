@@ -9,24 +9,30 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 
+
 class ChebyshevFunctionalBlock(nn.Module):
     """
     Order-2 Chebyshev Functional Matrix Expansion Block operating over atomic 16x16 matrix tiles.
     Evaluates matrix polynomial bases T0(X)=X, T1(X)=X, T2(X)=2*(X*X^T)-X and contracts with C0, C1, C2.
     """
+
     def __init__(self, embed_dim: int = 256, tile_dim: int = 16, order: int = 2):
         super().__init__()
         self.embed_dim = embed_dim
         self.tile_dim = tile_dim
         self.order = order
-        assert embed_dim == tile_dim * tile_dim, f"embed_dim ({embed_dim}) must equal tile_dim^2 ({tile_dim*tile_dim})"
+        assert embed_dim == tile_dim * tile_dim, (
+            f"embed_dim ({embed_dim}) must equal tile_dim^2 ({tile_dim * tile_dim})"
+        )
 
         # Trainable 16x16 coefficient matrices C0, C1, C2
         self.C0 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
         self.C1 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
         self.C2 = nn.Parameter(torch.randn(tile_dim, tile_dim) * 0.02)
 
-    def compute_chebyshev_bases(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def compute_chebyshev_bases(
+        self, X: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Compute T0(X), T1(X), T2(X) for input matrix tiles X of shape [B_N, 16, 16].
         T0(X) = X
@@ -36,18 +42,27 @@ class ChebyshevFunctionalBlock(nn.Module):
         """
         T0 = X
         T1 = X
-        # Batch matrix multiplication: X @ X^T -> [B_N, 16, 16]
-        XXT = torch.bmm(X, X.transpose(1, 2))
+        # Batch matrix multiplication: X @ X^T -> [B_N, 16, 16], averaged
+        # over the contraction dim. A raw sum makes T2 grow ~16x per stage,
+        # so stacked blocks explode super-exponentially once ||X|| > ~0.1.
+        # The mean keeps T2 ~= -X at init (small X) while taming growth 16x.
+        XXT = torch.bmm(X, X.transpose(1, 2)) / self.tile_dim
         T2 = 2.0 * XXT - X
         return T0, T1, T2
 
-    def contract_tensor_cores(self, T0: torch.Tensor, T1: torch.Tensor, T2: torch.Tensor) -> torch.Tensor:
+    def contract_tensor_cores(
+        self, T0: torch.Tensor, T1: torch.Tensor, T2: torch.Tensor
+    ) -> torch.Tensor:
         """
         Contract Chebyshev bases with trainable coefficient matrices C0, C1, C2.
         Y = T0 @ C0 + T1 @ C1 + T2 @ C2
         Returns output tensor Y of shape [B_N, 16, 16].
         """
-        Y = torch.matmul(T0, self.C0) + torch.matmul(T1, self.C1) + torch.matmul(T2, self.C2)
+        Y = (
+            torch.matmul(T0, self.C0)
+            + torch.matmul(T1, self.C1)
+            + torch.matmul(T2, self.C2)
+        )
         return Y
 
     def forward(self, Z: torch.Tensor) -> torch.Tensor:

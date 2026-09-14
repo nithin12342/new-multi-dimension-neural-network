@@ -13,6 +13,7 @@ from src.domain.model.chebyshev import ChebyshevFunctionalBlock
 from src.domain.model.trace_activation import TraceInvariantGate
 from src.domain.model.riemannian import PoincareConformalChart
 
+
 class FunctionalCoreModel(nn.Module):
     """
     Functional Core Model Backbone Aggregate.
@@ -20,7 +21,13 @@ class FunctionalCoreModel(nn.Module):
     Trace-Invariant Activation Scaling, Global Token Pooling, and Poincaré Hyperbolic Conformal Chart Mapping.
     """
 
-    def __init__(self, embed_dim: int = 256, tile_dim: int = 16, chebyshev_order: int = 2, poincare_curvature: float = 1.0):
+    def __init__(
+        self,
+        embed_dim: int = 256,
+        tile_dim: int = 16,
+        chebyshev_order: int = 2,
+        poincare_curvature: float = 1.0,
+    ):
         super().__init__()
         self.chebyshev1 = ChebyshevFunctionalBlock(embed_dim, tile_dim, chebyshev_order)
         self.trace_gate1 = TraceInvariantGate(tile_dim)
@@ -28,7 +35,9 @@ class FunctionalCoreModel(nn.Module):
         self.trace_gate2 = TraceInvariantGate(tile_dim)
         self.riemannian_chart = PoincareConformalChart(poincare_curvature)
 
-    def forward(self, Z0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, Z0: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass through Functional Core Model.
         Z0: [B, N_total, 256] -> Returns (Z2_scaled, z_riemannian, z_bar).
@@ -42,9 +51,17 @@ class FunctionalCoreModel(nn.Module):
         Z2_scaled = self.trace_gate2(Z2)
 
         # Global Sequence Pooling
-        z_bar = Z2_scaled.mean(dim=1) # [B, 256]
+        z_bar = Z2_scaled.mean(dim=1)  # [B, 256]
 
-        # Poincaré Conformal Riemannian Hyperbolic Mapping
-        z_riemannian = self.riemannian_chart(z_bar)
+        # Poincare Conformal Riemannian Hyperbolic Mapping.
+        # z_bar norms grow with dim (||z|| ~ sqrt(D)) so a hard clip pins
+        # EVERY sample to the shell (radius == 1 - eps) and the manifold
+        # alert fires each step. Apply a parameter-free adaptive radial
+        # squash (direction-preserving, monotonic, bounded by target < 1)
+        # then exp_map_zero, so radii distribute inside the ball.
+        z_norm = torch.norm(z_bar, p=2, dim=-1, keepdim=True).clamp_min(1e-8)
+        tangent_scale = 1.0 / (1.0 + z_norm)
+        z_tangent = z_bar * tangent_scale
+        z_riemannian = self.riemannian_chart.exp_map_zero(z_tangent)
 
         return Z2_scaled, z_riemannian, z_bar
